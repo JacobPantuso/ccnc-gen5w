@@ -1,0 +1,14 @@
+build/
+dist/
+__pycache__/
+*.pyc
+.DS_Store
+*.pem.key
+keys/
+# ccNC fonts and artwork (not redistributed in source)
+ccnc-common/assets/
+ccnc-common/fonts/
+*.ttf
+*.otf
+*.odex
+*.apk

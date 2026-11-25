@@ -1,0 +1,11 @@
+[nemesis]
+version=1.1
+id=ccnc.sideosd.restore
+name=ccNC Side Popups Restore
+type=application
+package-version=@VERSION@
+short-desc="Puts the previous RightScreenHome.odex back (emergency restore)."
+detailed-desc="ccNC Side Popups Restore @VERSION@: writes back the RightScreenHome.odex this unit had before ccNC Side Popups Off. Use with NEMESIS.emergency if Android is down. Restart afterwards."
+os=any
+models=any
+postinstall=scripts/post.sh

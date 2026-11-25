@@ -1,0 +1,18 @@
+[nemesis]
+version=1.1
+id=ccnc.apps
+name=ccNC Apps
+type=application
+package-version=@VERSION@
+short-desc="ccNC-style Settings, Climate, Media, Phone, Radio, EV and more."
+detailed-desc="ccNC Apps @VERSION@: Settings (native Vehicle and EV menus, ambient swatches, themes), Climate (wheel heat, rear seats, seat popup), EV, Media, Weather, Phone, Radio, Voice Memo, Profile, Navigation. Apps only; stock apps stay."
+os=any
+models=any
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh
+
+[app.0]
+kind=sh
+path=bin/open.sh
+uid=root

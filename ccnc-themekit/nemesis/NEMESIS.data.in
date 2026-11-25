@@ -1,0 +1,13 @@
+[nemesis]
+version=1.1
+id=ccnc.theme.@ID@
+name=@NAME@ (ccNC theme)
+type=application
+package-version=@VERSION@
+short-desc="@DESC@"
+detailed-desc="ccNC theme pack by @AUTHOR@, version @VERSION@. Adds the theme to ccNC; pick it in Settings > Screen Theme > ccNC Theme. Needs ccNC Home. Uninstalling removes it (ccNC goes back to its default theme if it was in use)."
+os=any
+models=any
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh

@@ -1,0 +1,13 @@
+[nemesis]
+version=1.1
+id=ccnc.welcome
+name=ccNC Startup Video
+type=application
+package-version=@VERSION@
+short-desc="Plays the ccNC welcome video when the head unit starts."
+detailed-desc="ccNC Startup Video @VERSION@: swaps the 5 s welcome/goodbye video in WelcomeGoodbye.apk for ccNC's (Kia or Hyundai version, picked from the car). The stock file is backed up first and put back on uninstall. Takes effect at the next start."
+os=any
+models=any
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh

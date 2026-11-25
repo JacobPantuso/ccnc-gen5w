@@ -1,0 +1,18 @@
+[nemesis]
+version=1.1
+id=ccnc.home
+name=ccNC Home
+type=application
+package-version=@VERSION@
+short-desc="ccNC-style home screen with themes and live weather."
+detailed-desc="ccNC Home @VERSION@: ccNC home screen: welcome page, app cards, now playing bar, volume and track OSD, live weather, 11 themes plus installable theme packs. Kia or Hyundai look from the car. Adds an app only; the stock home stays."
+os=any
+models=any
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh
+
+[app.0]
+kind=sh
+path=bin/open.sh
+uid=root

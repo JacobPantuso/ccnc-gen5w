@@ -1,0 +1,13 @@
+[nemesis]
+version=1.1
+id=ccnc.sideosd
+name=ccNC Side Popups Off
+type=application
+package-version=@VERSION@
+short-desc="Turns off the Gen5W right-side popups; ccNC Home shows its own."
+detailed-desc="ccNC Side Popups Off @VERSION@: patches RightScreenHome.odex so the Gen5W right-side popups never show. Stock file backed up, restored on uninstall. Restart after installing. Firmware CEEV.CAN 250818 only."
+os=any
+models=any
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh

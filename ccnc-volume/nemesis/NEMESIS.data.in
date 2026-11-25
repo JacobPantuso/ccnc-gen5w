@@ -1,0 +1,13 @@
+[nemesis]
+version=1.1
+id=ccnc.volume
+name=ccNC Volume
+type=application
+package-version=@VERSION@
+short-desc="Turns off the Gen5W volume strip; ccNC Home shows its own."
+detailed-desc="ccNC Volume @VERSION@: patches automotive-service.odex so the Gen5W volume strip never shows (ccNC shows its own). Stock file backed up, restored on uninstall. Restart after. Firmware CEEV.CAN 250818 only."
+os=any
+models=any
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh

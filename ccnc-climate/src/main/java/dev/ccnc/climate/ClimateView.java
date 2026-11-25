@@ -1,0 +1,522 @@
+package dev.ccnc.climate;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.view.MotionEvent;
+import android.view.View;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+import dev.ccnc.common.Art;
+import dev.ccnc.common.Fonts;
+import dev.ccnc.common.Palette;
+
+/**
+ * The ccNC climate screen, laid out from ccNC's own climate app (climatehmi, QML recovered from the
+ * binary) on its 1920 x 720 grid: the fan pill top centre (x738 y57, 446 x 89), a temperature
+ * column each side of the cabin (x544 / x1258: up arrow, value, down arrow), the seat picture with the
+ * air-flow overlays in the middle (x756 / x948, y233), seat heat and vent toggles at the far left and
+ * right (x192.5 / x1607.5), dividers at x505 and x1414, and the bottom bar below the divider at y620
+ * (back, AUTO, OFF, the air-flow preview that opens the mode popup, A/C, SYNC).
+ *
+ * <p>Not on this screen in ccNC, so not here: recirculation, rear defrost and power (physical buttons),
+ * and "driver only" (no state for it yet). All touch targets are rebuilt on every draw.
+ */
+final class ClimateView extends View {
+
+    interface Callback { void onChanged(); void onBack(); }
+
+    private static final float DW = 1920f, DH = 720f;
+    private static final float[] TEMP_RANGE = {15.5f, 29f};
+    /** Popup choices, ccNC mode numbers: 1 vent, 2 vent+floor, 3 floor, 4 defog+floor, 10 defog. */
+    private static final int[] POPUP_MODES = {1, 2, 3, 4, 10};
+
+    private final Callback cb;
+    private Climate.State s = new Climate.State();
+    private boolean popup, seatPopup;
+
+    /** Opens the ccNC seat heat/vent popup (also what the car's seat buttons open). */
+    void showSeats() { seatPopup = true; popup = false; invalidate(); }
+
+    void hideSeats() { seatPopup = false; popup = false; invalidate(); }
+
+    /** The popup was dismissed (tap outside or the close button). In overlay mode the window goes too. */
+    private void closeSeats() { seatPopup = false; if (overlay) cb.onBack(); }
+
+    private final Paint bmp = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF r = new RectF();
+
+    private static final class Hit {
+        final RectF box; final Runnable run; final boolean change;
+        Hit(RectF box, Runnable run, boolean change) { this.box = box; this.run = run; this.change = change; }
+    }
+    private final List<Hit> hits = new ArrayList<Hit>();
+    private Hit down;
+    private float k, ox, oy; // design px -> view px, and the letterbox offset
+
+    /**
+     * Overlay mode: only the seat popup, drawn over a transparent window that sits above whatever app is on
+     * screen (see {@link SeatOverlay}). Tapping outside the popup calls {@link Callback#onBack()}.
+     */
+    private final boolean overlay;
+
+    ClimateView(Context c, Callback cb) { this(c, cb, false); }
+
+    ClimateView(Context c, Callback cb, boolean overlay) {
+        super(c);
+        this.cb = cb;
+        this.overlay = overlay;
+        if (overlay) seatPopup = true;
+        line.setStyle(Paint.Style.STROKE);
+        setClickable(true);
+    }
+
+    void setState(Climate.State s, boolean readOnly) {
+        this.s = s;
+        invalidate();
+    }
+
+    // ---- touch ----
+
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        float x = e.getX(), y = e.getY();
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                down = null;
+                for (int i = hits.size() - 1; i >= 0; i--) if (hits.get(i).box.contains(x, y)) { down = hits.get(i); break; }
+                invalidate();
+                return true;
+            case MotionEvent.ACTION_UP:
+                Hit h = down;
+                down = null;
+                invalidate();
+                if (h != null && h.box.contains(x, y)) { h.run.run(); if (h.change) cb.onChanged(); else invalidate(); }
+                return true;
+            case MotionEvent.ACTION_CANCEL:
+                down = null;
+                invalidate();
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    // ---- helpers (design units in, view px out) ----
+
+    private RectF box(float l, float t, float w, float h) { return new RectF(ox + l * k, oy + t * k, ox + (l + w) * k, oy + (t + h) * k); }
+
+    private RectF grow(RectF b, float d) { return new RectF(b.left - d * k, b.top - d * k, b.right + d * k, b.bottom + d * k); }
+
+    /** Draws at the bitmap's own size (the QML images have no explicit size), or scaled to {@code w}. */
+    private void img(Canvas c, String name, float l, float t, float w, int alpha) {
+        Bitmap b = Art.climate(getContext(), name);
+        if (b == null) return;
+        float width = w > 0 ? w : b.getWidth();
+        r.set(ox + l * k, oy + t * k, ox + (l + width) * k, oy + (t + width * b.getHeight() / b.getWidth()) * k);
+        bmp.setAlpha(alpha);
+        c.drawBitmap(b, null, r, bmp);
+        bmp.setAlpha(255);
+    }
+
+    private void imgChrome(Canvas c, String name, float l, float t, float size) {
+        Bitmap b = Art.chrome(getContext(), name);
+        if (b == null) return;
+        r.set(ox + l * k, oy + t * k, ox + (l + size) * k, oy + (t + size) * k);
+        c.drawBitmap(b, null, r, bmp);
+    }
+
+    private void label(Canvas c, String t, float cx, float cy, float size, int color, int face) {
+        text.setTypeface(Fonts.get(getContext(), face));
+        text.setTextSize(size * k);
+        text.setColor(color);
+        text.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = text.getFontMetrics();
+        c.drawText(t, ox + cx * k, oy + cy * k - (fm.ascent + fm.descent) / 2f, text);
+    }
+
+    private void hit(RectF b, boolean change, Runnable run) { hits.add(new Hit(b, run, change)); }
+
+    private boolean pressed(RectF b) { return down != null && down.box.equals(b); }
+
+    // ---- ccNC air-flow mode numbers <-> our mode ----
+
+    private int ccMode() {
+        if (s.ccMode > 0) return s.ccMode;
+        switch (s.mode) {
+            case Climate.State.MODE_FACE: return 1;
+            case Climate.State.MODE_FACE_FEET: return 2;
+            case Climate.State.MODE_FEET: return 3;
+            case Climate.State.MODE_FEET_DEFOG: return 4;
+            default: return 10;
+        }
+    }
+
+    private static boolean top(int m) { return m == 4 || m == 5 || m == 7 || (m >= 9 && m <= 14); }
+    private static boolean mid(int m) { return m == 1 || m == 2 || m == 7 || m == 9 || m == 11 || m == 13; }
+    private static boolean bottom(int m) { return (m >= 2 && m <= 4) || m == 9 || m == 12 || m == 13; }
+
+    private void setCcMode(int m) {
+        s.power = true;
+        s.ccMode = m;
+        switch (m) {
+            case 1: s.mode = Climate.State.MODE_FACE; break;
+            case 2: s.mode = Climate.State.MODE_FACE_FEET; break;
+            case 3: s.mode = Climate.State.MODE_FEET; break;
+            case 4: s.mode = Climate.State.MODE_FEET_DEFOG; break;
+            default: s.mode = Climate.State.MODE_DEFOG; break;
+        }
+    }
+
+    // ---- the screen ----
+
+    @Override protected void onDraw(Canvas c) {
+        hits.clear();
+        k = Math.min(getWidth() / DW, getHeight() / DH);
+        ox = (getWidth() - DW * k) / 2f;
+        oy = (getHeight() - DH * k) / 2f;
+
+        if (overlay) { // the seat popup alone, over whatever is on screen
+            if (seatPopup) seatPopup(c);
+            return;
+        }
+
+        boolean flowing = s.power && (s.blower > 0 || s.auto) && s.modeKnown;
+        int mode = ccMode();
+
+        // Cabin: the seat with the air-flow overlays on it.
+        img(c, "cli_bg_seat", 948f, 233f, 0, 255);
+        if (flowing) {
+            if (top(mode)) img(c, "clm_bg_wind_top", 756f, 233f, 0, 255);
+            if (mid(mode)) img(c, "clm_bg_wind_mid", 756f, 233f, 0, 255);
+            if (bottom(mode)) img(c, "clm_bg_wind_bot", 756f, 233f, 0, 255);
+        }
+        if (s.modeKnown) hit(box(756f, 233f, 472f, 310f), false, new Runnable() { @Override public void run() { popup = true; } });
+
+        img(c, "clm_ic_divider_h", 505f, 106f, 1f, 255);
+        img(c, "clm_ic_divider_h", 1414f, 106f, 1f, 255);
+
+        fan(c);
+        temp(c, true);
+        temp(c, false);
+        seatButtons(c, true);
+        seatButtons(c, false);
+        bottomBar(c, mode);
+
+        if (popup) popup(c, mode);
+        if (seatPopup) seatPopup(c);
+    }
+
+    /** The fan pill: down, level (AUTO above it when automatic), up. */
+    private void fan(Canvas c) {
+        final float l = 738f, t = 57f;
+        img(c, "clm_bg_pop_fan", l, t, 446f, 255);
+        boolean off = !s.power || (s.blower == 0 && !s.auto);
+        img(c, off ? "clm_ic_pop_fan_02_off" : "clm_ic_pop_fan_02_down", l, t, 89f, 255);
+        img(c, "clm_ic_pop_fan_02_up", l + 357f, t, 89f, 255);
+        String level = off ? "OFF" : String.valueOf(Math.max(1, s.blower));
+        if (s.auto && !off) {
+            label(c, "AUTO", l + 89f + 134f, t + 17f, 20f, Palette.TEXT, Fonts.REGULAR);
+            label(c, level, l + 89f + 134f, t + 30f + 29f, 48f, Palette.TEXT, Fonts.REGULAR);
+        } else {
+            label(c, level, l + 89f + 134f, t + 44f, off ? 40f : 60f, Palette.TEXT, Fonts.REGULAR);
+        }
+        hit(grow(box(l, t, 89f, 89f), 22f), true, new Runnable() { @Override public void run() {
+            s.auto = false; s.power = true; s.blower = Math.max(0, s.blower - 1); } });
+        hit(grow(box(l + 357f, t, 89f, 89f), 22f), true, new Runnable() { @Override public void run() {
+            s.auto = false; s.power = true; s.blower = Math.min(8, s.blower + 1); } });
+    }
+
+    /** One temperature column: up arrow, value, down arrow. */
+    private void temp(Canvas c, final boolean driver) {
+        final float l = driver ? 544f : 1258f, t = 153f;
+        boolean enabled = driver || s.dual;
+        int a = enabled ? 255 : 110;
+        float v = driver ? s.driverTemp : (s.dual ? s.passengerTemp : s.driverTemp);
+        img(c, "clm_ic_up_red", l + 28f, t, 64f, a);
+        img(c, "clm_ic_down_blue", l + 28f, t + 356f, 64f, a);
+        String txt;
+        if (v <= TEMP_RANGE[0]) txt = "LO";
+        else if (v >= TEMP_RANGE[1]) txt = "HI";
+        else if (s.celsius) txt = String.format(Locale.US, "%.1f", v);
+        else txt = String.format(Locale.US, "%d", Math.round(v * 9f / 5f + 32f));
+        label(c, txt, l + 60f, t + 171f + 39f, 48f, enabled ? Palette.TEXT : Palette.HINT, Fonts.REGULAR);
+        hit(grow(box(l + 28f, t, 64f, 64f), 16f), true, new Runnable() { @Override public void run() { step(driver, 0.5f); } });
+        hit(grow(box(l + 28f, t + 356f, 64f, 64f), 17f), true, new Runnable() { @Override public void run() { step(driver, -0.5f); } });
+    }
+
+    private void step(boolean driver, float d) {
+        if (!driver && !s.dual) s.dual = true; // touching the passenger side unlinks it
+        float v = driver ? s.driverTemp : s.passengerTemp;
+        v = Math.max(TEMP_RANGE[0], Math.min(TEMP_RANGE[1], v + d));
+        if (driver) { s.driverTemp = v; if (!s.dual) s.passengerTemp = v; }
+        else s.passengerTemp = v;
+    }
+
+    /** Heat (toggle 02) and vent (toggle 03) for one seat, each 120 x 85 with three level bars on top. */
+    private void seatButtons(Canvas c, final boolean driver) {
+        final float x = driver ? 192.5f : 1607.5f;
+        seat(c, x, 244f + 115f, driver ? s.driverSeatHeat : s.passengerSeatHeat, true, driver);
+        seat(c, x, 244f + 230f, driver ? s.driverSeatVent : s.passengerSeatVent, false, driver);
+        if (driver && s.wheelAvail) wheel(c, x, 244f);
+    }
+
+    /** Steering-wheel warmer (ccNC clm_ic_toggle_01): one indicator bar, press toggles it. */
+    private void wheel(Canvas c, float x, float y) {
+        RectF b = box(x, y, 120f, 85f);
+        if (pressed(b)) { fill.setColor(Palette.PRESS); c.drawRoundRect(b, 16f * k, 16f * k, fill); }
+        img(c, s.wheelHeat ? "clm_ic_toggle_01_s" : "clm_ic_toggle_01", x + 25f, y + 15f, 70f, 255);
+        indicator(c, x + 16f, y + 10f, 88f, s.wheelHeat, true);
+        hit(b, true, new Runnable() { @Override public void run() { s.wheelHeat = !s.wheelHeat; } });
+    }
+
+    private int level(int seat, boolean heat) {
+        switch (seat) {
+            case 0: return heat ? s.driverSeatHeat : s.driverSeatVent;
+            case 1: return heat ? s.passengerSeatHeat : s.passengerSeatVent;
+            case 2: return heat ? s.rearLeftHeat : s.rearLeftVent;
+            default: return heat ? s.rearRightHeat : s.rearRightVent;
+        }
+    }
+
+    private void setLevel(int seat, int heat, int vent) {
+        switch (seat) {
+            case 0: s.driverSeatHeat = heat; s.driverSeatVent = vent; break;
+            case 1: s.passengerSeatHeat = heat; s.passengerSeatVent = vent; break;
+            case 2: s.rearLeftHeat = heat; s.rearLeftVent = vent; break;
+            default: s.rearRightHeat = heat; s.rearRightVent = vent; break;
+        }
+    }
+
+    private void seat(Canvas c, float x, float y, final int level, final boolean heat, final boolean driver) {
+        RectF b = box(x, y, 120f, 85f);
+        String icon = "clm_ic_toggle_0" + (heat ? "2" : "3") + (level > 0 ? "_s" : "");
+        img(c, icon, x + 25f, y + 15f, 70f, 255);
+        for (int i = 0; i < 3; i++) indicator(c, x + 16f + i * 32f, y + 10f, 24f, i < level, true);
+        hit(b, true, new Runnable() { @Override public void run() {
+            // Stock cycle (SeatHeatVentPopup): heat 8,7,6,2 / vent 5,4,3,2 on the SEAT_STATES values.
+            int cur = driver ? (s.driverSeatHeat > 0 ? Usm.stateOf(true, s.driverSeatHeat) : Usm.stateOf(false, s.driverSeatVent))
+                    : (s.passengerSeatHeat > 0 ? Usm.stateOf(true, s.passengerSeatHeat) : Usm.stateOf(false, s.passengerSeatVent));
+            int nx = Usm.nextState(cur, heat);
+            if (driver) { s.driverSeatHeat = Usm.heatLevel(nx); s.driverSeatVent = Usm.ventLevel(nx); }
+            else { s.passengerSeatHeat = Usm.heatLevel(nx); s.passengerSeatVent = Usm.ventLevel(nx); }
+        } });
+    }
+
+    private static final int HEAT = 0xFFFF6B2C, VENT = 0xFF4C9BFF, GAUGE_OFF = 0x33FFFFFF;
+
+    /**
+     * ccNC seat popup (seathmi art): a wide panel with the driver and passenger seats drawn with their heat (orange)
+     * or vent (blue) glow for the current level, ccNC seat buttons with level gauges beside each seat, and the rear
+     * seats and steering-wheel warmer in the middle. Seats the car doesn't have are left out; tap outside to close.
+     */
+    private void seatPopup(Canvas c) {
+        hits.clear();
+        fill.setColor(0xD9000000);
+        c.drawRect(0, 0, getWidth(), getHeight(), fill);
+        hit(new RectF(0, 0, getWidth(), getHeight()), false, new Runnable() { @Override public void run() { closeSeats(); } });
+
+        RectF panel = box(70f, 66f, 1780f, 548f);
+        fill.setColor(0xF5121A23);
+        c.drawRoundRect(panel, 32f * k, 32f * k, fill);
+        line.setColor(Palette.BORDER);
+        line.setStrokeWidth(Math.max(1f, 2f * k));
+        c.drawRoundRect(panel, 32f * k, 32f * k, line);
+        hit(panel, false, new Runnable() { @Override public void run() { } }); // taps on the panel stay in it
+
+        // Close (top right).
+        RectF close = box(1762f, 82f, 72f, 72f);
+        if (pressed(close)) { fill.setColor(Palette.PRESS); c.drawOval(close, fill); }
+        img(c, "clm_ic_close", 1778f, 98f, 40f, 255);
+        hit(close, false, new Runnable() { @Override public void run() { closeSeats(); } });
+
+        boolean rl = Climate.State.rearExists(s.rlOpt), rr = Climate.State.rearExists(s.rrOpt);
+        boolean middle = rl || rr || s.wheelAvail;
+
+        // Driver: seat art, then its buttons; passenger mirrored.
+        frontSeat(c, 0, 110f, 430f, true);
+        frontSeat(c, 1, middle ? 1240f : 1010f, 1510f, false);
+
+        if (middle) {
+            img(c, "clm_ic_divider_h", 700f, 120f, 1f, 160);
+            img(c, "clm_ic_divider_h", 1200f, 120f, 1f, 160);
+            float cx = 950f;
+            if (rl || rr) {
+                label(c, "Rear Seats", cx, 140f, 32f, Palette.TEXT, Fonts.SEMIBOLD);
+                if (rl) seatTile(c, rr ? 735f : 850f, 200f, 220f, 150f, 2, true, "Left");
+                if (rr) seatTile(c, rl ? 965f : 850f, 200f, 220f, 150f, 3, true, "Right");
+            }
+            if (s.wheelAvail) {
+                float wy = rl || rr ? 440f : 200f;
+                label(c, "Steering Wheel", cx, wy - 42f, 32f, Palette.TEXT, Fonts.SEMIBOLD);
+                wheelTile(c, 840f, wy, 220f, 150f);
+            }
+        }
+    }
+
+    /** One front seat: caption, the seat art with its glow, and heat/vent buttons beside it. */
+    private void frontSeat(Canvas c, final int seat, float artX, float btnX, boolean driver) {
+        int h = level(seat, true), v = level(seat, false);
+        String who = driver ? "driver" : "passenger";
+        String art = h > 0 ? "set_bg_" + who + "_heat_0" + Math.min(3, h) : v > 0 ? "set_bg_" + who + "_vent_0" + Math.min(3, v) : "set_bg_" + who + "_seat";
+        float ax = driver ? artX : btnX;   // passenger: art right of its buttons
+        float bx = driver ? btnX : artX;
+        img(c, art, ax, 190f, 300f, 255);
+        label(c, driver ? "Driver" : "Passenger", ax + 150f, 140f, 32f, Palette.TEXT, Fonts.SEMIBOLD);
+        seatTile(c, bx, 200f, 240f, 150f, seat, true, null);
+        seatTile(c, bx, 360f, 240f, 150f, seat, false, null);
+    }
+
+    /** ccNC seat button (set_btn_bg_seat): icon, three level gauges (orange heat / blue vent), optional caption. */
+    private void seatTile(Canvas c, float x, float y, float w, float h, final int seat, final boolean heat, String caption) {
+        int lv = level(seat, heat);
+        RectF b = box(x, y, w, h);
+        img(c, pressed(b) ? "set_btn_bg_seat_p" : lv > 0 ? "set_btn_bg_seat_s" : "set_btn_bg_seat_n", x, y, w, 255);
+        if (lv > 0) { // lit edge in the level colour
+            line.setColor((heat ? HEAT : VENT) & 0x99FFFFFF);
+            line.setStrokeWidth(Math.max(1f, 2f * k));
+            RectF e = box(x + 2f, y + 2f, w - 4f, w * 146f / 280f - 4f);
+            c.drawRoundRect(e, 22f * k, 22f * k, line);
+        }
+        float bh = w * 146f / 280f;
+        String icon = seat >= 2 ? "clm_ic_toggle_0" + (heat ? "2" : "3") + "_r" + (lv > 0 ? "_s" : "")
+                : "clm_ic_seat_" + (heat ? "heat" : "vent") + (seat == 0 ? "_l" : "_r");
+        float is = seat >= 2 ? 64f : 70f;
+        img(c, icon, x + (w - is) / 2f, y + bh * 0.16f, is, lv > 0 || seat < 2 ? 255 : 200);
+        gauges(c, x + w / 2f, y + bh * 0.78f, lv, heat ? HEAT : VENT);
+        if (caption != null) label(c, caption, x + w / 2f, y + bh + 26f, 26f, Palette.SUBTEXT, Fonts.REGULAR);
+        hit(b, true, new Runnable() { @Override public void run() {
+            int hh = level(seat, true), vv = level(seat, false);
+            int nx = Usm.nextState(hh > 0 ? Usm.stateOf(true, hh) : Usm.stateOf(false, vv), heat);
+            setLevel(seat, Usm.heatLevel(nx), Usm.ventLevel(nx));
+        } });
+    }
+
+    /** Steering-wheel warmer tile: on/off, one gauge. */
+    private void wheelTile(Canvas c, float x, float y, float w, float h) {
+        RectF b = box(x, y, w, w * 146f / 280f);
+        boolean on = s.wheelHeat;
+        img(c, pressed(b) ? "set_btn_bg_seat_p" : on ? "set_btn_bg_seat_s" : "set_btn_bg_seat_n", x, y, w, 255);
+        float bh = w * 146f / 280f;
+        if (on) {
+            line.setColor(HEAT & 0x99FFFFFF);
+            line.setStrokeWidth(Math.max(1f, 2f * k));
+            c.drawRoundRect(box(x + 2f, y + 2f, w - 4f, bh - 4f), 22f * k, 22f * k, line);
+        }
+        img(c, on ? "clm_ic_toggle_01_s" : "clm_ic_toggle_01", x + (w - 64f) / 2f, y + bh * 0.16f, 64f, 255);
+        r.set(ox + (x + w / 2f - 30f) * k, oy + (y + bh * 0.78f) * k, ox + (x + w / 2f + 30f) * k, oy + (y + bh * 0.78f + 6f) * k);
+        fill.setColor(on ? HEAT : GAUGE_OFF);
+        c.drawRoundRect(r, 3f * k, 3f * k, fill);
+        hit(b, true, new Runnable() { @Override public void run() { s.wheelHeat = !s.wheelHeat; } });
+    }
+
+    private void gauges(Canvas c, float cx, float y, int level, int color) {
+        float bw = 34f, gap = 8f, l = cx - (3 * bw + 2 * gap) / 2f;
+        for (int i = 0; i < 3; i++) {
+            r.set(ox + (l + i * (bw + gap)) * k, oy + y * k, ox + (l + i * (bw + gap) + bw) * k, oy + (y + 6f) * k);
+            fill.setColor(i < level ? color : GAUGE_OFF);
+            c.drawRoundRect(r, 3f * k, 3f * k, fill);
+        }
+    }
+
+    /** Below the divider at y620: back, AUTO, OFF, air-flow preview, A/C, SYNC. */
+    private void bottomBar(Canvas c, int mode) {
+        img(c, "clm_ic_divider_w", 0f, 620f, 1920f, 255);
+
+        RectF back = box(20f, 638f, 122f, 74f);
+        if (pressed(back)) { fill.setColor(Palette.PRESS); c.drawRoundRect(back, 20f * k, 20f * k, fill); }
+        imgChrome(c, "back", 20f + 21f, 638f - 3f, 80f);
+        hit(grow(back, 12f), false, new Runnable() { @Override public void run() { cb.onBack(); } });
+
+        toggle(c, 172f, 637f, "AUTO", s.auto && s.power, new Runnable() { @Override public void run() {
+            s.auto = !s.auto; s.power = true; if (s.auto) s.blower = Math.max(1, s.blower); } });
+
+        boolean off = !s.power || (s.blower == 0 && !s.auto);
+        RectF offBox = box(444f, 637f, 220f, 86f);
+        label(c, "OFF", 444f + 110f, 620f + 35f + 23.5f, 30f, Palette.TEXT, Fonts.REGULAR);
+        hit(offBox, true, new Runnable() { @Override public void run() { s.auto = false; s.blower = 0; } });
+
+        // Seats: opens the seat popup (rear seats and wheel included).
+        RectF seats = box(760f, 637f, 220f, 78f);
+        if (pressed(seats)) { fill.setColor(Palette.PRESS); c.drawRoundRect(seats, 20f * k, 20f * k, fill); }
+        boolean anySeat = s.rearLeftHeat + s.rearLeftVent + s.rearRightHeat + s.rearRightVent > 0;
+        img(c, anySeat ? "clm_ic_toggle_02_r_s" : "clm_ic_toggle_02_r", 760f + 75f, 641f, 70f, 255);
+        hit(seats, false, new Runnable() { @Override public void run() { seatPopup = true; } });
+
+        // The air-flow preview doubles as the mode popup button.
+        RectF pv = box(1154f, 628f, 186f, 92f);
+        if (pressed(pv)) { fill.setColor(Palette.PRESS); c.drawRoundRect(pv, 20f * k, 20f * k, fill); }
+        img(c, "clm_ic_seat_off", 1154f, 628f, 186f, 255);
+        if (s.modeKnown && s.power) {
+            if (top(mode)) img(c, "clm_ic_defog_off", 1154f, 628f, 186f, 255);
+            if (mid(mode)) img(c, "clm_ic_air_mid_off", 1154f, 628f, 186f, 255);
+            if (bottom(mode)) img(c, "clm_ic_air_bot_off", 1154f, 628f, 186f, 255);
+        }
+        if (s.modeKnown) hit(pv, false, new Runnable() { @Override public void run() { popup = !popup; } });
+
+        toggle(c, 1392f, 637f, "A/C", s.ac && s.power, new Runnable() { @Override public void run() { s.ac = !s.ac; } });
+        toggle(c, 1658f, 637f, "SYNC", !s.dual, new Runnable() { @Override public void run() {
+            s.dual = !s.dual; if (!s.dual) s.passengerTemp = s.driverTemp; } });
+    }
+
+    private final java.util.HashMap<String, Bitmap> ind = new java.util.HashMap<String, Bitmap>();
+
+    /** ccNC's toggle indicator art (9-patch, 1px guide border cropped), drawn w x 5. */
+    private void indicator(Canvas c, float l, float t, float w, boolean on, boolean seat) {
+        String n = (seat ? "clm_btn_toggle01_" : "clm_btn_toggle_") + (on ? "on" : "off");
+        Bitmap b = ind.get(n);
+        if (b == null) {
+            try {
+                java.io.InputStream in = getContext().getAssets().open("ccnc/climate/" + n + ".9.png");
+                Bitmap raw = android.graphics.BitmapFactory.decodeStream(in);
+                in.close();
+                b = Bitmap.createBitmap(raw, 1, 1, raw.getWidth() - 2, raw.getHeight() - 2);
+            } catch (Exception e) { return; }
+            ind.put(n, b);
+        }
+        r.set(ox + l * k, oy + t * k, ox + (l + w) * k, oy + (t + 5f) * k);
+        c.drawBitmap(b, null, r, bmp);
+    }
+
+    /** ccNC ClimateToggleButton: 220 x 71, one 38 x 5 indicator at (91,12), caption 32 px at y18 h47; no background. */
+    private void toggle(Canvas c, float l, float t, String caption, boolean on, Runnable run) {
+        RectF b = box(l, t, 220f, 71f);
+        indicator(c, l + 91f, t + 12f, 38f, on, false);
+        label(c, caption, l + 110f, t + 18f + 23.5f, 32f, Palette.TEXT, Fonts.REGULAR);
+        hit(b, true, run);
+    }
+
+    /** The air-flow mode popup over a dimmed screen, pointing at the preview. */
+    private void popup(Canvas c, int mode) {
+        hits.clear(); // the dim layer takes every touch
+        fill.setColor(0xCC000000);
+        c.drawRect(0, 0, getWidth(), getHeight(), fill);
+        hit(new RectF(0, 0, getWidth(), getHeight()), false, new Runnable() { @Override public void run() { popup = false; } });
+
+        float w = POPUP_MODES.length * 186f, l = 495f, t = 528f;
+        RectF panel = box(l, t, w, 92f);
+        fill.setColor(0xFF161F29);
+        c.drawRoundRect(panel, 24f * k, 24f * k, fill);
+        line.setColor(Palette.BORDER);
+        line.setStrokeWidth(Math.max(1f, 2f * k));
+        c.drawRoundRect(panel, 24f * k, 24f * k, line);
+        img(c, "clm_bg_set_polygon", 1221f, 618f, 19f, 255);
+        for (int i = 0; i < POPUP_MODES.length; i++) {
+            final int m = POPUP_MODES[i];
+            boolean on = m == mode;
+            float x = l + i * 186f;
+            img(c, on ? "clm_ic_seat_on" : "clm_ic_seat_off", x, t, 186f, 255);
+            if (top(m)) img(c, on ? "clm_ic_defog_on" : "clm_ic_defog_off", x, t, 186f, 255);
+            if (mid(m)) img(c, on ? "clm_ic_air_mid_on" : "clm_ic_air_mid_off", x, t, 186f, 255);
+            if (bottom(m)) img(c, on ? "clm_ic_air_bot_on" : "clm_ic_air_bot_off", x, t, 186f, 255);
+            hit(box(x, t, 186f, 92f), true, new Runnable() { @Override public void run() { setCcMode(m); popup = false; } });
+        }
+    }
+}

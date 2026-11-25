@@ -1,0 +1,22 @@
+{
+  "id": "sample-ember",
+  "name": "Sample Ember",
+  "author": "ccNC",
+  "version": "1.0",
+  "description": "Example ccNC theme pack: warm accent over the nebula wallpaper.",
+  "brands": ["hyundai", "kia"],
+  "light": false,
+  "colors": {
+    "background": ["#140A08", "#2A130E", "#3A1A12", "#160B08"],
+    "glow1": "#60C8501E",
+    "glow2": "#40803214",
+    "shade": "#80080302",
+    "card": "#703A2018",
+    "subtext": "#D9B8A8",
+    "accent": "#FF6B35"
+  },
+  "wallpaper": "wallpaper.jpg",
+  "icons": "icons",
+  "boot_video": null,
+  "shutdown_video": null
+}

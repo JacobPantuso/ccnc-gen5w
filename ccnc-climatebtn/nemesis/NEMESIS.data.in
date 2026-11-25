@@ -1,0 +1,13 @@
+[nemesis]
+version=1.1
+id=ccnc.climatebtn
+name=ccNC Climate Buttons
+type=application
+package-version=@VERSION@
+short-desc="The car's climate and seat buttons open ccNC Climate."
+detailed-desc="ccNC Climate Buttons @VERSION@: patches HKMC_Climate.odex so the climate and seat buttons open ccNC Climate and its seat popup. Needs ccNC Apps. Stock file backed up, restored on uninstall. Restart after. Firmware CEEV.CAN 250818 only."
+os=any
+models=any
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh

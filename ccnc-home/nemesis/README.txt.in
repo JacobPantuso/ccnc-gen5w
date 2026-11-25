@@ -1,0 +1,20 @@
+ccNC Home @VERSION@ - install with NEMESIS
+==========================================
+
+A home screen in the style of Hyundai's newer ccNC head units, for Gen5W.
+It only adds an app: nothing in /system changes and the stock home stays.
+
+Install from a USB stick
+1. Unzip this file onto the top level of a USB stick (FAT32 or exFAT), so the
+   stick has NEMESIS.data and the packages folder at its root. Only one NEMESIS
+   package on the stick at a time.
+2. Plug the stick in once the home screen is up, and confirm the install of
+   "ccNC Home". A toast says when it's done. Take the stick out.
+
+Use
+- Open it from NEMESIS Manager (Launch) or its app icon.
+- Swipe between pages. Long-press a card to move or hide it.
+- Long-press the date bar: Theme, show hidden apps, reset layout, open stock home.
+
+Update: install the newer package the same way; your layout and theme stay.
+Uninstall: from NEMESIS Manager, or  nemesis uninstall ccnc.home

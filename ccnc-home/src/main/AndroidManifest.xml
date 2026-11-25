@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.ccnc.home"
+    android:versionCode="17"
+    android:versionName="1.16">
+
+
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <!-- This head unit's activity manager checks GET_TASKS even in Activity.finish(). -->
+    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- ccNC Theme Store: downloads theme packs over Wi-Fi (ThemeStore, StoreCheckReceiver). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application android:name="dev.ccnc.common.CcncApp"
+        android:label="ccNC Home"
+        android:icon="@drawable/ic_launcher"
+        android:theme="@style/HomeTheme"
+        android:hardwareAccelerated="true"
+        android:allowBackup="false">
+        <!-- the unit's iAP2 interface (system shared library): needed to start the phone's now-playing feed -->
+        <uses-library android:name="com.tcc.iap2" android:required="false" />
+
+        <provider
+            android:name=".ThemeProvider"
+            android:authorities="dev.ccnc.home.theme"
+            android:exported="true" />
+
+        <service android:name=".VolumeOsdService" android:exported="false" />
+
+        <activity
+            android:name=".HomeActivity"
+            android:launchMode="singleTask"
+            android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+            <service android:name=".MediaNotificationBlocker"
+            android:label="ccNC media popups"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+        <!-- Checks the ccNC Theme Store when the head unit joins Wi-Fi (never installs by itself). -->
+        <receiver android:name=".StoreCheckReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

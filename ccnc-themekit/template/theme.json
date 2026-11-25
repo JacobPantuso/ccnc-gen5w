@@ -1,0 +1,23 @@
+{
+  "id": "my-theme",
+  "name": "My Theme",
+  "author": "Your Name",
+  "github": "your-github-username",
+  "version": "1.0",
+  "description": "One line about your theme.",
+  "brands": ["hyundai", "kia"],
+  "light": false,
+  "colors": {
+    "background": ["#05070A", "#0B1118", "#101922", "#06090C"],
+    "glow1": "#00000000",
+    "glow2": "#00000000",
+    "shade": "#99000000",
+    "card": "#5C2A343D",
+    "subtext": "#B4BEC6",
+    "accent": "#4FB3E8"
+  },
+  "wallpaper": "wallpaper.jpg",
+  "icons": "icons",
+  "boot_video": null,
+  "shutdown_video": null
+}

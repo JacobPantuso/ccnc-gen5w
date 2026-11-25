@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.ccnc.climate"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="com.hkmc.permission.AUTOMOTIVE_STATE" />
+    <uses-permission android:name="com.hkmc.permission.AUTOMOTIVE_HVAC" />
+
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <!-- The seat popup is drawn as a system overlay over whatever is on screen (SeatOverlay). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <application android:name="dev.ccnc.common.CcncApp"
+        android:label="Climate"
+        android:icon="@drawable/ic_launcher"
+        android:theme="@style/ClimateTheme"
+        android:hardwareAccelerated="true"
+        android:allowBackup="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:launchMode="singleTask"
+            android:stateNotNeeded="true"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The car's climate buttons: the stock climate service (patched by ccnc.climatebtn) sends these. -->
+            <intent-filter>
+                <action android:name="com.hkmc.telematics.service.apps.climate.activities.InteriorClimateNew" />
+                <action android:name="com.hkmc.telematics.service.apps.climate.activities.NewClimateControl" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- The car's seat buttons: opens or closes the seat popup over the current screen, no screen of its own. -->
+        <activity
+            android:name=".SeatOverlayActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:stateNotNeeded="true"
+            android:screenOrientation="landscape">
+            <intent-filter>
+                <action android:name="com.hkmc.telematics.service.apps.climate.activities.SWRCFrontSeatHeatVentControl" />
+                <action android:name="com.hkmc.telematics.service.apps.climate.activities.SeatHeatVentPopup" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
