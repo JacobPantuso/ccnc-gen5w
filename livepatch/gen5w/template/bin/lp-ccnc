@@ -1,0 +1,36 @@
+#!/system/bin/sh
+# DRAFT / UNTESTED ON A HEAD UNIT. ccnc.gen5w build: a step that doesn't fit this firmware leaves the file
+# stock (exit 10) instead of failing the install, so the apps still install on other Gen5W firmware.
+# NEMESIS LivePatch exec tool: lp-ccnc <mode> <in> <out>   (mode: volume | sideosd | climate)
+# LivePatch runs it as root from the package folder. Exit 0: <out> written; 10: <in> already patched;
+# anything else fails the install and the last printed line is the reason. The output depends only on
+# <in> and <mode>. Head-unit shell rules: mksh + toolbox, no sed/awk/head/tail/cut/tr/printf.
+mode="$1"; in="$2"; out="$3"
+# Result for ccNC's developer menu (best effort): /data/ccnc/livepatch/<step> = applied | unsupported
+mark() {
+    mkdir -p /data/ccnc/livepatch 2>/dev/null && chmod 755 /data/ccnc /data/ccnc/livepatch 2>/dev/null
+    echo "$2" > "/data/ccnc/livepatch/$1" 2>/dev/null && chmod 644 "/data/ccnc/livepatch/$1" 2>/dev/null
+    return 0
+}
+case "$mode" in volume|sideosd|climate) ;; *) echo "lp-ccnc: unknown mode '$mode'"; exit 1 ;; esac
+[ -s files/ccnc-lp.jar ] || { echo "lp-ccnc: missing files/ccnc-lp.jar"; exit 1; }
+[ -r "$in" ] || { echo "lp-ccnc: cannot read $in"; exit 1; }
+# dalvikvm needs a writable dalvik-cache for the tool's own jar (never /data/dalvik-cache)
+D=$PWD/lp-dalvik
+mkdir -p "$D/dalvik-cache" || { echo "lp-ccnc: cannot make $D"; exit 1; }
+if [ -z "$BOOTCLASSPATH" ]; then
+    while read a b c; do
+        [ "$a" = export ] && [ "$b" = BOOTCLASSPATH ] && BOOTCLASSPATH="$c"
+    done < /init.environ.rc
+fi
+[ -n "$BOOTCLASSPATH" ] || { echo "lp-ccnc: no BOOTCLASSPATH"; exit 1; }
+export BOOTCLASSPATH ANDROID_DATA="$D" ANDROID_ROOT=/system
+rm -f "$out"
+/system/bin/dalvikvm -Xmx96m -cp files/ccnc-lp.jar ccnc.lp.DexPatch "$mode" "$in" "$out"
+rc=$?
+rm -rf "$D"
+case $rc in
+0)  [ -s "$out" ] || { echo "lp-ccnc: $mode wrote nothing"; exit 1; }; mark "$mode" applied; exit 0 ;;
+10) rm -f "$out"; mark "$mode" applied; exit 10 ;;
+*)  rm -f "$out"; mark "$mode" unsupported; echo "lp-ccnc: $mode doesn't fit this firmware; left stock"; exit 10 ;;
+esac

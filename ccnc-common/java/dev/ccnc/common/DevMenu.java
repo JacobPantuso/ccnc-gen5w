@@ -41,13 +41,14 @@ import java.util.Map;
 
 /**
  * ccNC developer menu: tap the clock in any ccNC top bar 7 times. A ccNC-styled popup with
- *   Status         ccNC packages and versions, brand, firmware, theme, the ccNC system patches (by file md5),
- *                  NEMESIS / dev tools / HMG-API presence, uptime, memory, storage
+ *   Status         ccNC packages and versions, brand, firmware, theme, the ccNC system patches (LivePatch mount +
+ *                  the step's own result in /data/ccnc/livepatch; 1.x byte patches by md5), tools, uptime, memory, storage
  *   CPU usage      total and per-process CPU (from /proc), load, memory; refreshed every 2 s
- *   Compatibility  firmware vs what the ccNC patches are made for, detected brand, car services and stock apps
+ *   Compatibility  head unit, which system patches fit this firmware (a LivePatch step that installs is supported),
+ *                  detected brand, car services and stock apps
  *   Run checks     the on-car check (/data/ccnc/verify.sh, report to the USB stick) through NEMESIS root;
  *                  without root, the checks an app can do itself
- *   Reboot         setprop sys.powerctl reboot through NEMESIS root (tap twice)
+ *   Reboot         asks first (a ccNC confirm popup), then setprop sys.powerctl reboot through NEMESIS root
  * Root goes through the NEMESIS CLI: /data/ccnc/nemesis-d (non-SUID copy: the NEMESIS daemon, full root), else
  * /system/xbin/nemesis (SUID: a limited root when an app runs it). Both are tried; the popup says which worked.
  */
@@ -57,14 +58,18 @@ public final class DevMenu {
     static final String TAG = "ccncDev";
     private static final String DIR = "/data/ccnc";
     private static final String[] NEMESIS = {DIR + "/nemesis-d", "/system/xbin/nemesis"};
-    /** The ccNC system patches: file, stock md5, patched md5, package. */
+    /**
+     * The ccNC system patches: LivePatch step, name, target file, md5 of the 1.x byte-patched file ("" = none).
+     * LivePatch (ccnc.gen5w 2.x) adapts each step to the firmware at install, so a step that installed is
+     * supported; its tool records the result in /data/ccnc/livepatch/<step> (applied | unsupported).
+     */
     private static final String[][] PATCHES = {
-            {"/system/framework/automotive-service.odex", "61e2bc82f758b53797b0a7aa3980eae8", "f426a78f829b935005995b4f998863ca", "ccNC Volume"},
-            {"/system/app/RightScreenHome.odex", "9b54104c21339e5c593d13081b5abd3c", "0b04470678194ab7e5bf626de3738001", "ccNC Side Popups Off"},
-            {"/system/app/HKMC_Climate.odex", "5742c2482f5ae4aa9126a0f27283abe3", "364fe54acec3998d06ad53c44e7056d7", "ccNC Climate Buttons"},
+            {"volume", "Volume strip off", "/system/framework/automotive-service.odex", "f426a78f829b935005995b4f998863ca"},
+            {"sideosd", "Side popups off", "/system/app/RightScreenHome.odex", "0b04470678194ab7e5bf626de3738001"},
+            {"climate", "Climate buttons", "/system/app/HKMC_Climate.odex", "364fe54acec3998d06ad53c44e7056d7"},
+            {"welcome", "Startup video", "/system/app/WelcomeGoodbye.apk", ""},
     };
-    /** Head-unit firmware the ccNC system patches are made for. */
-    private static final String PATCH_FIRMWARE = "CEEV.CAN.S5W_M.V014.010.250818";
+    private static final String LP_DIR = DIR + "/livepatch";
 
     private static final int GOOD = 0xFF4CD08A, BAD = 0xFFE5484D, WARN = 0xFFF2C94C;
 
@@ -95,7 +100,6 @@ public final class DevMenu {
         LinearLayout content;
         TextView[] tabs;
         int tab = -1;
-        long rebootArmed;
         final Runnable cpuTick = new Runnable() { @Override public void run() { if (tab == 1) { cpu(); ui.postDelayed(this, 2000); } } };
 
         Menu(Activity a) {
@@ -118,14 +122,15 @@ public final class DevMenu {
             panel.setBackgroundDrawable(bg);
             panel.setPadding(px(24), px(18), px(24), px(18));
 
-            // Header: title, build line, close.
+            // Header: title over the car line (brand, firmware), close on the right.
             LinearLayout head = new LinearLayout(a);
             head.setGravity(Gravity.CENTER_VERTICAL);
-            TextView title = text("Developer", 24, Palette.TEXT, Fonts.SEMIBOLD);
-            head.addView(title);
+            LinearLayout titles = new LinearLayout(a);
+            titles.setOrientation(LinearLayout.VERTICAL);
+            titles.addView(text("Developer", 24, Palette.TEXT, Fonts.SEMIBOLD));
             String fw = prop("ro.build.product2");
-            TextView sub = text("   Built by Jacob Pantuso  ·  " + Fonts.brand(a) + " · " + (fw == null ? "unknown firmware" : fw), 14, Palette.SUBTEXT, Fonts.REGULAR);
-            head.addView(sub, new LinearLayout.LayoutParams(0, -2, 1f));
+            titles.addView(text(cap(Fonts.brand(a)) + "  ·  " + (fw == null ? "unknown firmware" : fw), 14, Palette.SUBTEXT, Fonts.REGULAR));
+            head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
             TextView close = text("✕", 24, Palette.TEXT, Fonts.REGULAR);
             close.setPadding(px(12), 0, px(4), 0);
             close.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { dismiss(); } });
@@ -147,6 +152,12 @@ public final class DevMenu {
                 tabs[i] = t;
                 menu.addView(t, new LinearLayout.LayoutParams(px(200), -2));
             }
+            // Footer at the bottom of the menu column: version and credit.
+            menu.addView(new View(a), new LinearLayout.LayoutParams(1, 0, 1f));
+            String hv = version("dev.ccnc.home");
+            TextView credit = text("ccNC" + (hv == null ? "" : " " + hv) + "\nBuilt by Jacob Pantuso", 13, Palette.SUBTEXT, Fonts.REGULAR);
+            credit.setPadding(px(16), 0, px(8), px(2));
+            menu.addView(credit);
             LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-2, -1);
             ml.rightMargin = px(16); // keep the selected item's background off the divider
             body.addView(menu, ml);
@@ -183,7 +194,7 @@ public final class DevMenu {
         }
 
         void select(int i) {
-            if (i == 4) { reboot(); return; }
+            if (i == 4) { confirmReboot(); return; }
             tab = i;
             for (int k = 0; k < tabs.length; k++) {
                 GradientDrawable g = new GradientDrawable();
@@ -269,10 +280,10 @@ public final class DevMenu {
             });
             for (PackageInfo p : ps) row(p.packageName.substring(9), p.versionName, 0);
             row("Theme", themeId(), 0);
-            row("Brand", Fonts.brand(a), 0);
+            row("Brand", cap(Fonts.brand(a)), 0);
             heading("System patches");
             final TextView[] pv = new TextView[PATCHES.length];
-            for (int i = 0; i < PATCHES.length; i++) pv[i] = row(PATCHES[i][3], "checking…", 0);
+            for (int i = 0; i < PATCHES.length; i++) pv[i] = row(PATCHES[i][1], "checking…", 0);
             heading("Tools");
             row("NEMESIS CLI", new File(NEMESIS[1]).exists() ? "present" : "missing", new File(NEMESIS[1]).exists() ? GOOD : BAD);
             boolean tools = new File(DIR + "/verify.sh").exists() && new File(NEMESIS[0]).exists();
@@ -290,16 +301,16 @@ public final class DevMenu {
                 long free = (long) s.getAvailableBlocks() * s.getBlockSize(), tot = (long) s.getBlockCount() * s.getBlockSize();
                 row("Storage (/data)", (free >> 20) + " MB free of " + (tot >> 20) + " MB", free < (200L << 20) ? WARN : 0);
             } catch (Throwable ignored) { }
+            patchStates(0, pv);
+        }
+
+        /** Fills the rows with each patch's state, worked out off the UI thread. */
+        void patchStates(int page, final TextView[] pv) {
             final String[] res = new String[PATCHES.length];
             final int[] col = new int[PATCHES.length];
-            bg(0, new Runnable() { @Override public void run() {
-                for (int i = 0; i < PATCHES.length; i++) {
-                    String h = md5(PATCHES[i][0]);
-                    if (h == null) { res[i] = "file not readable"; col[i] = WARN; }
-                    else if (h.equals(PATCHES[i][2])) { res[i] = "installed"; col[i] = GOOD; }
-                    else if (h.equals(PATCHES[i][1])) { res[i] = "not installed (stock)"; col[i] = 0; }
-                    else { res[i] = "unknown file " + h.substring(0, 8); col[i] = WARN; }
-                }
+            bg(page, new Runnable() { @Override public void run() {
+                String mounts = readAll("/proc/mounts");
+                for (int i = 0; i < PATCHES.length; i++) { Object[] r = patchState(i, mounts); res[i] = (String) r[0]; col[i] = (Integer) r[1]; }
             } }, new Runnable() { @Override public void run() {
                 for (int i = 0; i < PATCHES.length; i++) { pv[i].setText(res[i]); if (col[i] != 0) pv[i].setTextColor(col[i]); }
             } });
@@ -378,12 +389,15 @@ public final class DevMenu {
             String fw = prop("ro.build.product2");
             heading("Head unit");
             row("Firmware", fw, 0);
-            boolean patches = PATCH_FIRMWARE.equals(fw);
-            row("ccNC system patches", patches ? "made for this firmware" : "not made for this firmware", patches ? GOOD : WARN);
-            row("Brand", Fonts.brand(a) + "  (" + brandSource() + ")", 0);
+            row("Brand", cap(Fonts.brand(a)) + "  (" + brandSource() + ")", 0);
             android.util.DisplayMetrics dm = a.getResources().getDisplayMetrics();
             boolean screen = dm.widthPixels == 1920 && dm.heightPixels >= 700;
             row("Screen", dm.widthPixels + " x " + dm.heightPixels + " @ " + dm.densityDpi + " dpi", screen ? GOOD : WARN);
+            heading("System patches on this firmware");
+            note("LivePatch fits each patch to this firmware when it installs. A patch that installs successfully is supported.");
+            final TextView[] pv = new TextView[PATCHES.length];
+            for (int i = 0; i < PATCHES.length; i++) pv[i] = row(PATCHES[i][1], "checking…", 0);
+            patchStates(2, pv);
             heading("Car services");
             row("Climate (DATC)", has(service("DATC_SERVICE", "com.hkmc.micom.datc")), 0);
             row("Seats / wheel (USM)", has(service("USM_SERVICE", "com.hkmc.micom.usm")), 0);
@@ -450,17 +464,54 @@ public final class DevMenu {
 
         // ---- Reboot ----
 
+        /** A ccNC confirm popup over the menu: Cancel or Reboot. */
+        void confirmReboot() {
+            final Dialog d = new Dialog(a, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen);
+            d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            d.getWindow().setBackgroundDrawable(new ColorDrawable(0x99000000));
+            FrameLayout root = new FrameLayout(a);
+            root.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { d.dismiss(); } });
+            LinearLayout box = new LinearLayout(a);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setClickable(true);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0xFA17212C);
+            bg.setCornerRadius(24 * dp);
+            bg.setStroke(Math.max(1, (int) dp), Palette.BORDER);
+            box.setBackgroundDrawable(bg);
+            box.setPadding(px(32), px(26), px(32), px(24));
+            box.addView(text("Reboot Headunit?", 24, Palette.TEXT, Fonts.SEMIBOLD));
+            TextView body = text("The headunit will be unavailable for up to a minute. Confirm below.", 17, Palette.SUBTEXT, Fonts.REGULAR);
+            body.setPadding(0, px(10), 0, px(22));
+            box.addView(body);
+            LinearLayout btns = new LinearLayout(a);
+            btns.setGravity(Gravity.RIGHT);
+            TextView cancel = pill("Cancel", 0x26FFFFFF);
+            cancel.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Chrome.beep(a); d.dismiss(); } });
+            TextView ok = pill("Reboot", BAD);
+            ok.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Chrome.beep(a); d.dismiss(); reboot(); } });
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(px(160), px(56));
+            btns.addView(cancel, bl);
+            LinearLayout.LayoutParams ol = new LinearLayout.LayoutParams(px(160), px(56));
+            ol.leftMargin = px(14);
+            btns.addView(ok, ol);
+            box.addView(btns);
+            root.addView(box, new FrameLayout.LayoutParams(px(620), -2, Gravity.CENTER));
+            d.setContentView(root);
+            d.show();
+        }
+
+        TextView pill(String s, int color) {
+            TextView b = text(s, 18, Palette.TEXT, Fonts.SEMIBOLD);
+            b.setGravity(Gravity.CENTER);
+            GradientDrawable g = new GradientDrawable();
+            g.setCornerRadius(28 * dp);
+            g.setColor(color);
+            b.setBackgroundDrawable(g);
+            return b;
+        }
+
         void reboot() {
-            long now = SystemClock.uptimeMillis();
-            if (now - rebootArmed > 4000) {
-                rebootArmed = now;
-                tabs[4].setText("Tap again to reboot");
-                tabs[4].setTextColor(BAD);
-                ui.postDelayed(new Runnable() { @Override public void run() {
-                    if (SystemClock.uptimeMillis() - rebootArmed >= 4000) { tabs[4].setText("Reboot"); tabs[4].setTextColor(Palette.TEXT); }
-                } }, 4100);
-                return;
-            }
             tabs[4].setText("Rebooting…");
             new Thread(new Runnable() { @Override public void run() {
                 final String r = root("setprop sys.powerctl reboot", 15000);
@@ -522,6 +573,40 @@ public final class DevMenu {
             Class<?> sp = Class.forName("android.os.SystemProperties");
             String v = (String) sp.getMethod("get", String.class, String.class).invoke(null, key, "");
             return v == null || v.length() == 0 ? null : v;
+        } catch (Throwable t) { return null; }
+    }
+
+    /**
+     * {text, colour} for PATCHES[i]: LivePatch's patched copy mounted over the file = active; the step's own record
+     * (applied but not mounted = restart pending or safe mode; unsupported = this firmware doesn't fit); else the
+     * 1.x byte patch by md5; else off.
+     */
+    static Object[] patchState(int i, String mounts) {
+        String path = PATCHES[i][2];
+        if (mounts != null) for (String l : mounts.split("\n")) {
+            String[] f = l.split(" ");
+            if (f.length > 1 && f[1].equals(path)) return new Object[]{"Active", GOOD};
+        }
+        String lp = read(LP_DIR + "/" + PATCHES[i][0]);
+        lp = lp == null ? "" : lp.trim();
+        if (lp.equals("applied")) return new Object[]{"Installed, restart to apply", WARN};
+        if (lp.equals("unsupported")) return new Object[]{"Not supported on this firmware", 0};
+        if (PATCHES[i][3].length() > 0 && PATCHES[i][3].equals(md5(path))) return new Object[]{"Active (1.x patch)", GOOD};
+        return new Object[]{"Off", 0};
+    }
+
+    static String cap(String s) { return s == null || s.isEmpty() ? "" : Character.toUpperCase(s.charAt(0)) + s.substring(1); }
+
+    /** The whole file (read() stops at 4 KB). */
+    static String readAll(String path) {
+        try {
+            InputStream in = new FileInputStream(path);
+            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            int n;
+            while ((n = in.read(b)) > 0) o.write(b, 0, n);
+            in.close();
+            return o.toString();
         } catch (Throwable t) { return null; }
     }
 

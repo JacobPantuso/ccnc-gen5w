@@ -1,5 +1,7 @@
 # Building ccNC
 
+[← Back to README](README.md)
+
 Everything is built with plain shell scripts, no Gradle.
 
 ## You need
@@ -12,13 +14,28 @@ Everything is built with plain shell scripts, no Gradle.
   - `ccnc-common/build-fonts.sh` subsets the ccNC fonts into `ccnc-common/fonts/<brand>`.
   - Each app's own artwork (e.g. `ccnc-climate/assets/ccnc/climate`, `ccnc-ev/src/main/assets/ccnc/ev`) comes
     from the same dump, under `assembled/<app>/`.
+  - The startup videos `ccnc-welcome/video/welcome_hyundai_avnt.mp4` and `welcome_kia_avnt.mp4` come from the
+    same dump.
 
 ## Build
 
-    cd ccnc-home && ./build.sh            # one app (APK in build/)
-    ./ccnc-release.sh                     # every NEMESIS package + dist/ccnc-all-nemesis.zip (USB stick bundle)
+| Command | Output |
+|---|---|
+| `cd ccnc-home && ./build.sh` | One app, in `build/` (car build, Android 4.4 / API 19) |
+| `TARGET_SDK=30 ./build.sh` | A copy for a modern Android emulator (1920 x 720 AVD) |
+| `livepatch/gen5w/mkgen5w.sh` | The release package: `livepatch/gen5w/dist/ccnc.gen5w-<version>-nemesis-package.zip` (Package Store) and `-nemesis.zip` (USB stick) |
+| `REBUILD=1 livepatch/gen5w/mkgen5w.sh` | The same, rebuilding every app first |
+| `./ccnc-release.sh` | The legacy 1.x packages (separate apps and system packages) |
 
-`TARGET_SDK=30 ./build.sh` builds a copy for a modern Android emulator (the car runs Android 4.4, API 19).
+`mkgen5w.sh` also builds the two on-unit tools if needed: `livepatch/tool` (the LivePatch dex patcher) and
+`ccnc-welcome/build-patch.sh` (the startup-video patcher).
+
+## The release package
+
+`livepatch/gen5w/template` is the NEMESIS package: `NEMESIS.data.in` (with `[patch.N]` LivePatch steps),
+install scripts in `scripts/` and the LivePatch tools in `bin/`. Each tool follows the NEMESIS `exec` contract
+(`<tool> <args> <in> <out>`; exit 0 = written, 10 = leave the file as it is) and exits 10 when a change doesn't
+fit the firmware, so the apps still install. See [`livepatch/gen5w/README.md`](livepatch/gen5w/README.md).
 
 ## Layout
 
@@ -27,6 +44,8 @@ Everything is built with plain shell scripts, no Gradle.
 | `ccnc-common` | Shared code: top/bottom bars, themes and theme packs, fonts, developer menu |
 | `ccnc-home` | The launcher, theme provider and Theme Store |
 | `ccnc-settings`, `ccnc-climate`, `ccnc-ev`, `ccnc-media`, ... | The apps |
-| `ccnc-apps` | The ccNC Apps NEMESIS package |
-| `ccnc-volume`, `ccnc-sideosd`, `ccnc-climatebtn`, `ccnc-welcome` | The optional system packages (patch tools and install scripts; the stock files they patch aren't included) |
+| `livepatch/gen5w` | The ccNC for Gen5W release package (apps + LivePatch steps) |
+| `livepatch/tool` | The LivePatch dex patcher (volume, side pop-ups, climate buttons) |
+| `ccnc-welcome` | The startup-video patcher and videos |
+| `ccnc-apps`, `ccnc-volume`, `ccnc-sideosd`, `ccnc-climatebtn` | Legacy 1.x packages (kept for reference) |
 | `ccnc-themekit` | Theme-pack tools (also in [ccnc-themes](https://github.com/JacobPantuso/ccnc-themes)) |

@@ -1,0 +1,56 @@
+; ccNC for Gen5W (LivePatch). DRAFT / UNTESTED ON A HEAD UNIT until @NEMESIS_MIN@ is out and verified.
+[nemesis]
+version=1.2
+id=ccnc.gen5w
+name=ccNC for Gen5W
+type=application
+package-version=@VERSION@
+short-desc="ccNC-style home screen and apps for Gen5W, all in one."
+detailed-desc="ccNC Home and apps (Settings, Climate, EV, Media, Radio, Phone, Weather, Navigation, Voice Memo, Profile) plus LivePatch changes, no /system writes: climate/seat buttons open ccNC Climate, no Gen5W volume strip or side popups, ccNC startup video."
+os=any
+models=any
+depends=usb-handler@>=@NEMESIS_MIN@,!ccnc.apps,!ccnc.home,!ccnc.volume,!ccnc.sideosd,!ccnc.climatebtn,!ccnc.welcome,!ccnc.volume.restore,!ccnc.sideosd.restore,!ccnc.climatebtn.restore
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh
+
+[app.0]
+kind=sh
+path=bin/open.sh
+uid=root
+
+; Each step finds its code by stable class names / strings, not by firmware-specific names. On a firmware
+; where a step doesn't fit, its tool leaves the file stock (exit 10) instead of failing the whole install.
+; No stop/restart: all four are read at boot, so they apply with NEMESIS's single restart after the queue.
+
+; Gen5W volume strip off (ccNC Home shows its own): MicomVolumePanel.onShowVolumeChanged* return at once.
+[patch.1]
+target=/system/framework/automotive-service.odex
+engine=exec
+tool=bin/lp-ccnc
+args=volume
+optional=1
+
+; Gen5W right-screen side popups off: only canShowSSOsd() / WithoutVR() / WithDispOff(); the system's
+; canShowSSOsd(ZZZ) query stays stock (so its "Media off" notice isn't triggered at boot).
+[patch.2]
+target=/system/app/RightScreenHome.odex
+engine=exec
+tool=bin/lp-ccnc
+args=sideosd
+optional=1
+
+; Car climate and seat buttons open ccNC Climate (its launchers' explicit intents become actions ccNC Climate claims).
+[patch.3]
+target=/system/app/HKMC_Climate.odex
+engine=exec
+tool=bin/lp-ccnc
+args=climate
+optional=1
+
+; ccNC startup video in the stock welcome app.
+[patch.4]
+target=/system/app/WelcomeGoodbye.apk
+engine=exec
+tool=bin/lp-welcome
+optional=1
