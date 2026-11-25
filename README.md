@@ -4,6 +4,8 @@
 
 **Hyundai and Kia's newest ccNC infotainment look, on Gen5W head units.**
 
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/jacobpantuso)
+
 ![Platform](https://img.shields.io/badge/head%20unit-Gen5W-1f6feb)
 ![Android](https://img.shields.io/badge/Android-4.4-3ddc84)
 ![Installer](https://img.shields.io/badge/installs%20with-NEMESIS-8957e5)
@@ -16,6 +18,9 @@
 </div>
 
 ---
+
+> ☕ **Enjoying ccNC-Gen5W?** It's free and took a *lot* of late nights to build, and a fair amount of paid AI usage
+> along the way. If you enjoy the experience, consider [donating](https://buymeacoffee.com/jacobpantuso). It helps keep updates and new features coming.
 
 ## Overview
 
