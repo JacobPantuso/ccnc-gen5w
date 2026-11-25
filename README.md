@@ -35,16 +35,16 @@ system changes made with NEMESIS LivePatch so the car's own buttons and pop-ups 
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/welcome.png"><br><b>Home</b>: clock, weather and what's playing.</td>
-<td width="50%"><img src="docs/screenshots/climate.png"><br><b>Climate</b>: the car's climate and seat buttons open it.</td>
+<td width="50%"><img src="docs/screenshots/welcome.png"></td>
+<td width="50%"><img src="docs/screenshots/climate.png"></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/ev.png"><br><b>EV</b>: battery, range, charge limits and schedules.</td>
-<td><img src="docs/screenshots/media.png"><br><b>Media</b>: CarPlay, Bluetooth, USB and radio in one place.</td>
+<td><img src="docs/screenshots/ev.png"></td>
+<td><img src="docs/screenshots/media.png"></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/settings.png"><br><b>Settings</b>: the car's own settings, in ccNC style.</td>
-<td><img src="docs/screenshots/theme-store.png"><br><b>Themes</b>: 11 built in, more from the Theme Store.</td>
+<td><img src="docs/screenshots/settings.png"></td>
+<td><img src="docs/screenshots/theme-store.png"></td>
 </tr>
 </table>
 

@@ -26,7 +26,6 @@ Nothing is written to `/system`. The stock files stay byte for byte as shipped.
 - **HMG-API aware.** If HMG-API is installed (wireless CarPlay), ccNC keeps its file check happy so its features
   stay on.
 - **Car controls are the car's own.** Climate, EV and vehicle settings use the same services as the stock apps.
-  Climate starts in view-only mode.
 
 ## Known limits
 

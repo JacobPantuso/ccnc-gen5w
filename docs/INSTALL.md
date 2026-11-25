@@ -43,9 +43,7 @@
 ## First setup
 
 1. Press the **Home** button. Android asks which home screen to use: choose **ccNC Home**, then **Always**.
-2. Open **Climate** and turn on **Vehicle control** if you want ccNC to change climate settings (it starts in
-   view-only mode).
-3. Optional: pick a theme in **Settings > Screen Theme > ccNC Theme**, or get more from the **Theme Store**.
+2. Optional: pick a theme in **Settings > Screen Theme > ccNC Theme**, or get more from the **Theme Store**.
 
 ## Updating
 

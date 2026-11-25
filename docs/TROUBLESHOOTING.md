@@ -13,7 +13,7 @@
 | A system change says *Installed, restart to apply* | Restart the head unit. If it stays, NEMESIS may be in safe mode: check NEMESIS Manager. |
 | Wireless CarPlay stopped after installing | Restart once more. If it persists, run **Run checks** in the developer menu and open an issue with the report. |
 | Theme Store shows no themes | Connect the head unit to Wi-Fi with internet access, then open the store again. |
-| Climate won't change anything | Turn on **Vehicle control** in Climate. |
+| Climate won't change anything | Vehicle control may have been turned off: long-press the top-left corner of Climate (over the home button) and turn it back on. |
 
 ## Reporting a problem
 

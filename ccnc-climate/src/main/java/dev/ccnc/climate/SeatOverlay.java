@@ -67,7 +67,7 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
         attached = true;
         shown = this;
 
-        control = app.getSharedPreferences("climate", Context.MODE_PRIVATE).getBoolean("vehicle_control", false);
+        control = app.getSharedPreferences("climate", Context.MODE_PRIVATE).getBoolean("vehicle_control", true);
         source.start(this);
         if (!source.isVehicle()) { // no DATC service (bench, emulator): interactive demo
             source.stop();
@@ -96,7 +96,7 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
         view.setState(state, source.isVehicle());
     }
 
-    /** The popup changed {@link #state}. Same rules as MainActivity: view only unless Vehicle control is on. */
+    /** The popup changed {@link #state}. Same rules as MainActivity: controls the car unless Vehicle control was turned off. */
     @Override public void onChanged() {
         if (source.isVehicle()) {
             if (control && vehicleState != null) {

@@ -31,8 +31,8 @@ the heated steering wheel.
 
 ![Seat popup](screenshots/seat-popup.png)
 
-The seat popup opens from the car's seat button. Climate starts in view-only mode; turn on **Vehicle control**
-to change settings from the screen.
+The seat popup opens from the car's seat button. Every control on the screen changes the car's climate
+directly, just like the stock climate screen.
 
 ## EV
 

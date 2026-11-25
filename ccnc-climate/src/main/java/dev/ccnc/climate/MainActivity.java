@@ -16,7 +16,8 @@ import dev.ccnc.common.Palette;
 
 /**
  * ccNC-style climate screen ({@link ClimateView}). On the car it shows what the vehicle
- * reports and is view only; off the car it is an interactive demo.
+ * reports and controls it (Vehicle control is on by default; long-press over the home button turns it off);
+ * off the car it is an interactive demo.
  */
 public final class MainActivity extends Activity implements Climate.Source.Listener, ClimateView.Callback {
 
@@ -26,14 +27,14 @@ public final class MainActivity extends Activity implements Climate.Source.Liste
     private ClimateView panel;
     private TextView controlPill;
     private DatcSource datc;
-    private boolean control; // vehicle control opt-in (saved)
+    private boolean control; // vehicle control (saved; on unless the owner turned it off)
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         dev.ccnc.common.Themes.apply(this); // shared ccNC theme
         datc = new DatcSource();
         source = datc;
-        control = getSharedPreferences("climate", MODE_PRIVATE).getBoolean("vehicle_control", false);
+        control = getSharedPreferences("climate", MODE_PRIVATE).getBoolean("vehicle_control", true);
 
         FrameLayout root = new FrameLayout(this);
         root.addView(new Bg(this), new FrameLayout.LayoutParams(-1, -1));
@@ -120,9 +121,8 @@ public final class MainActivity extends Activity implements Climate.Source.Liste
         }
         new android.app.AlertDialog.Builder(this, android.app.AlertDialog.THEME_HOLO_DARK)
                 .setTitle("Control the car's climate?")
-                .setMessage("The commands sent here (A/C, Auto, Sync, recirculation, defog, fan, temperature) are the ones the stock "
-                        + "climate service accepts, but their values are unconfirmed on this car. Nothing happens to safety systems, "
-                        + "but a control may do the opposite of what you tap. Turn it off again from this switch.")
+                .setMessage("ccNC Climate will change the car's climate and seat settings when you tap them. "
+                        + "Turn it off again from this switch.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Turn on", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) { setControl(true); }
