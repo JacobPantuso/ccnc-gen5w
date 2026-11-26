@@ -29,8 +29,6 @@ Nothing is written to `/system`. The stock files stay byte for byte as shipped.
 
 ## Known limits
 
-- Tested on one car: a 2023+ Hyundai Ioniq 6, firmware `CEEV.CAN.S5W_M.V014.010.250818`. Other Gen5W cars and
-  firmware should work but haven't been tested.
 - A head-unit software update (dealer or over the air) may remove NEMESIS and ccNC; reinstall afterwards.
 - Modifying the head unit may affect your warranty.
 
