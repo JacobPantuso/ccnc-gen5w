@@ -13,7 +13,7 @@ import dev.ccnc.common.Profiles;
  * the agreement, the three profiles and Confirm), without changing SystemUI. Once per start, when that screen is
  * ready (sys.boot.enabled_screen=true), it:
  *   1. selects the default profile with the screen's own broadcast CHANGE_FOCUS_CONSENT (userType, fromWhere=0),
- *      unless it's "Follow Key" or the profile has a password (the car asks for it after Confirm anyway);
+ *      unless it's "Last Used" or the profile has a password (the car asks for it after Confirm anyway);
  *   2. after the auto-advance time, confirms with HIDE_CONSENT_SCREEN, exactly what Confirm does.
  * Auto-advance only acts here once the owner chose a value in Setup (the stock screen keeps its own 10 s timer
  * otherwise), and only for values under 10 s; Off (-1) leaves it alone too. Runs from Home's start and from BOOT_COMPLETED,

@@ -113,12 +113,28 @@ final class Ui {
         return r;
     }
 
+    /**
+     * Formerly opened the stock Gen5W settings screen for pkg. ccNC Setup no longer starts stock settings screens:
+     * this now opens the matching ccNC Setup category (MainActivity extra "open" = the stock classId of the category).
+     */
     static void openStock(Activity a, String pkg, String cls, String what) {
+        String id = "com.android.soundsettings".equals(pkg) ? "com.android.SoundSetting"
+                : "com.android.btsettings".equals(pkg) ? "com.android.settings.bt"
+                : "com.hkmc.wifisettings".equals(pkg) ? "com.hkmc.wifisettings.settings.ui.NetworkConnectionSettings"
+                : "com.android.generalsettings".equals(pkg) ? "com.android.GeneralSettings"
+                : "com.android.displaysettings".equals(pkg) ? "com.android.DisplaySettingsModeCheck"
+                : "com.android.vehiclesettings".equals(pkg) ? "com.android.vehiclesettings.VehicleSetting" : null;
+        openSetup(a, id);
+    }
+
+    /** Opens ccNC Setup on a category (by the stock classId its Section declares), or on the gate when id is null. */
+    static void openSetup(Activity a, String id) {
         try {
-            a.startActivity(new android.content.Intent(android.content.Intent.ACTION_MAIN)
-                    .setComponent(new android.content.ComponentName(pkg, cls)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            android.content.Intent i = new android.content.Intent(a, MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (id != null) i.putExtra("open", id);
+            a.startActivity(i);
         } catch (Throwable t) {
-            android.widget.Toast.makeText(a, what + " isn't available", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(a, "--", android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 

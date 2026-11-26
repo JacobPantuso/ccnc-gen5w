@@ -1,13 +1,16 @@
 package dev.ccnc.settings.sections;
 
 import android.content.Context;
-import android.content.Intent;
 
 import java.lang.reflect.Method;
 
+import dev.ccnc.settings.api.Ask;
+import dev.ccnc.settings.api.Car;
 import dev.ccnc.settings.api.Category;
 import dev.ccnc.settings.api.Fn;
+import dev.ccnc.settings.api.Host;
 import dev.ccnc.settings.api.Page;
+import dev.ccnc.settings.api.Scontrol;
 import dev.ccnc.settings.api.Section;
 import dev.ccnc.settings.api.Sys;
 
@@ -25,7 +28,18 @@ import dev.ccnc.settings.api.Sys;
  *             Utils.isSupportNavigation): Navigation Guidance During Calls get/setNaviDuringCall(bool);
  *             Navigation Volume Priority getSoundPriority()==NAVI_FIRST(1), set 1 (on) / SAME_MIX_AV_NAVI 3 (off),
  *             the values DrivingGuidance.onCheckItemClick writes.
- * Premium Sound, the position diagram, Guidance Volumes and the remaining tabs stay in the stock entry.
+ * Everything else goes through the stock app's own smart-control bridge ({@link Scontrol}, type 10, handled by
+ * SoundSettingService -> search.CcVRcontrol / CfgPremiumSound / CfgASD): the stock app reads and writes the value
+ * itself (FrameworkManager + its SettingsProvider + up-sync), so the car gets exactly the stock call. Key ids are
+ * com.hkmc.ssearch.SSearchConstants$SID$Sound. Rows appear only for settings the stock app reports on this car.
+ *   Premium Sound   Live Dynamic, QLS, Clari-Fi, Bass Boost, Centerpoint, Arkamys, Meridian, SDVC (as fitted)
+ *   Guidance        Guidance Volumes (levels 1202..1210 with the stock min/max), Voice Type, Charging Voice Prompts,
+ *                   Weather Information Briefing, Welcome Sound
+ *   Active Sound Design, Radio Noise, Driver Assistance (Warning Volume, Driving / Parking Safety Priority)
+ *   Reset           Tone and Position back to centre (the stock "Reset" also clears the amplifier options; here
+ *                   only the two things this page can show are reset, after a confirmation)
+ * Not ported: Connected Devices (per-projection volumes; the stock ConnDeviceVolumes screen has no smart-control
+ * keys) - shown as a note. Nothing here opens a stock screen.
  */
 public final class SoundSection extends Section {
     @Override public String classId() { return "com.android.SoundSetting"; }
@@ -35,19 +49,47 @@ public final class SoundSection extends Section {
     private static final int FADE = 5, BALANCE = 6, BASS = 8, MIDDLE = 9, TREBLE = 10;
     private static final int NAVI_FIRST = 1, SAME_MIX_AV_NAVI = 3, BOSE_DSC = 0x2f;
 
+    private static final String PKG = "com.android.soundsettings";
+
+    // ---- smart-control key ids (SSearchConstants$SID$Sound) ----
+    private static final int K_LIVE_DYNAMIC = 0x27d8, K_QLS = 0x27e2, K_ARKAMYS = 0x280a, K_HORIZON = 0x2814,
+            K_INTELLIQ = 0x281e, K_SDVC4 = 0x2828, K_CLARIFI = 0x760c, K_BASS_BOOST = 0x7616, K_BOSE_CP = 0x7620,
+            K_ARKAMYS_AVC = 0x762f, K_SDVC2 = 0x7652, K_LD_LITE = 0x7670, K_QLS_LITE = 0x767a;
+    private static final int[] PREMIUM = {K_LIVE_DYNAMIC, K_QLS, K_ARKAMYS, K_HORIZON, K_INTELLIQ, K_SDVC4, K_CLARIFI,
+            K_BASS_BOOST, K_BOSE_CP, K_ARKAMYS_AVC, K_SDVC2, K_LD_LITE, K_QLS_LITE};
+    private static final int K_VOICE_TYPE = 0x2968, K_CVP = 0x297c, K_WEATHER = 0x77d8, K_WELCOME = 0x77e2;
+    /** Guidance volume levels (CcVRcontrol.setVolumeCCVR switch 0x4b2..0x4ba; 0x4b6 is unused). */
+    private static final int V_BEEP = 0x4b2, V_RINGTONE = 0x4b3, V_VR = 0x4b4, V_PROMPTS = 0x4b5, V_NAVI = 0x4b7,
+            V_ALERTS = 0x4b8, V_NAVI_FX = 0x4b9, V_CLUSTER = 0x4ba;
+    private static final int[] VOLUMES = {V_NAVI, V_NAVI_FX, V_VR, V_PROMPTS, V_RINGTONE, V_ALERTS, V_CLUSTER, V_BEEP};
+    private static final int K_ASD = 0x2a30, K_ESE = 0x2a3a, K_EV_ASD = 0x2a58, K_APS = 0x2a76, K_VESS = 0x2a80, K_ANC = 0x78aa;
+    private static final int[] ACTIVE = {K_ASD, K_ESE, K_EV_ASD, K_APS, K_VESS, K_ANC};
+    private static final int K_RNC = 0x2af8;
+    private static final int K_DA_WARN = 0x2b5c, K_DA_DRIVE_PRIO = 0x7986, K_DA_PARK_PRIO = 0x7990;
+    private static final int[] DA = {K_DA_WARN, K_DA_DRIVE_PRIO, K_DA_PARK_PRIO};
+
+    private static String st(Context x, String name, String fallback) { return Car.str(x, PKG, name, fallback); }
+
+    private static boolean any(Scontrol s, int[] keys) { for (int k : keys) if (s.has(k)) return true; return false; }
+
     @Override public void build(Category c) {
         final Context x = c.context();
+        final Scontrol sc = Scontrol.of(x, PKG, 10);
+        sc.prefetch(PREMIUM); sc.prefetch(VOLUMES); sc.prefetch(ACTIVE); sc.prefetch(DA);
+        sc.prefetch(K_VOICE_TYPE, K_CVP, K_WEATHER, K_WELCOME, K_RNC);
+        if (!sc.anyAnswer()) sc.await(1500);
         final Audio a = Audio.get(x);
-        if (a == null) return; // no MicomAudioManager on this unit: stock screen opens directly
+        if (a == null) { smartTabs(c, x, sc, null, false, false); return; } // no MicomAudioManager (emulator)
 
         // Premium Sound (PremiumSound.getList): Dynamic Speed Compensation when SoundAdvancedManager has BOSE_DSC
         // (getAmpType Bose + getSoundAvailability(BOSE_DSCMODE 0x2f) == 1; value getSoundSetting == 1, write setSound(0x2f, 1/0));
         // Start-up Volume Limit on KR20y6th builds (stepofspec >= 25): get/setAutoAdjustingVolumeSetting(boolean).
         final boolean dsc = a.integer("getSoundAvailability", BOSE_DSC) == 1;
         final boolean startup = step(25);
-        if (dsc || startup) {
+        if (dsc || startup || any(sc, PREMIUM)) {
             c.tab(c.word(1023, "Premium Sound"), new Fn.Build() {
                 @Override public void build(Page p) {
+                    premium(p, x, sc);
                     if (dsc) p.toggle(p.word(1026, "Dynamic Speed Compensation"), a.flag(BOSE_DSC), a.setFlag(BOSE_DSC));
                     if (startup) p.toggle(p.word(1025, "Start-up Volume Limit"),
                             new Fn.Bool() { @Override public boolean get() { return a.bool("getAutoAdjustingVolumeSetting"); } },
@@ -93,9 +135,7 @@ public final class SoundSection extends Section {
         final boolean navi = supportNavigation();
         c.tab(c.word(1038, "Guidance"), new Fn.Build() {
             @Override public void build(Page p) {
-                p.stock(p.word(1039, "Guidance Volumes"));
-                p.stock("Charging Voice Prompts");
-                if (navi && step(0x38)) p.stock("Navigation Alerts");
+                guidance(p, x, sc);
                 if (navi && !isBus()) {
                     p.toggle(p.word(1051, "Navigation Guidance During Calls"),
                             new Fn.Bool() { @Override public boolean get() { return a.bool("getNaviDuringCall"); } },
@@ -110,6 +150,128 @@ public final class SoundSection extends Section {
                 }
             }
         });
+        smartTabs(c, x, sc, a, true, true);
+    }
+
+    /** Premium Sound rows the stock app reports (amplifier dependent; none on a base audio system). */
+    private static void premium(Page p, Context x, Scontrol sc) {
+        sc.attach(p.host());
+        sc.group(p, K_LIVE_DYNAMIC, st(x, "sound_advanced_item_title_live_dynamic", "Live Dynamic"),
+                new int[] {0x4ee9, 0x4eea, 0x4eeb},
+                new String[] {st(x, "sound_advanced_live_dynamic_value_natural", "Natural"),
+                        st(x, "sound_advanced_live_dynamic_value_concert", "Concert"), st(x, "sound_advanced_reference", "Reference")});
+        sc.check(p, K_LD_LITE, st(x, "sound_advanced_item_title_live_dynamic", "Live Dynamic"));
+        sc.group(p, K_QLS, st(x, "sound_advanced_item_title_quantum_logic_surround", "Quantum Logic Surround"),
+                new int[] {0x4ef3, 0x4ef4, 0x4ef5},
+                new String[] {st(x, "sound_advanced_qls_value_audience_mode", "Audience"),
+                        st(x, "sound_advanced_qls_value_on_stage_mode", "On Stage"), st(x, "sound_advanced_reference", "Reference")});
+        sc.check(p, K_QLS_LITE, st(x, "sound_advanced_item_title_quantum_logic_surround", "Quantum Logic Surround"));
+        sc.check(p, K_CLARIFI, st(x, "sound_advanced_item_title_clari_fi", "Clari-Fi"));
+        sc.check(p, K_BASS_BOOST, st(x, "sound_advanced_bass_boost", "Bass Boost"));
+        sc.check(p, K_BOSE_CP, st(x, "sound_advanced_bose_cp", "Centerpoint Surround Technology"));
+        sc.group(p, K_ARKAMYS, st(x, "soundsetting_sound_mode", "Arkamys Sound Mood"),
+                new int[] {0x4f1c, 0x4f1b, 0x4f1e, 0x4f1d},
+                new String[] {st(x, "soundsetting_sound_mode_natural", "Natural"), st(x, "soundsetting_sound_mode_club", "Club"),
+                        st(x, "soundsetting_sound_mode_longue", "Lounge"), st(x, "soundsetting_sound_mode_live", "Live")});
+        sc.check(p, K_ARKAMYS_AVC, st(x, "soundsetting_sound_mode_automatic_volume_control", "Automatic Volume Control"));
+        // Meridian Horizon "Custom" (imaging / immersion bars) has no smart-control levels: Authentic / Surround only.
+        sc.group(p, K_HORIZON, st(x, "sound_advanced_meridian_horizon_title", "Meridian Horizon"),
+                new int[] {0x4f25, 0x4f26},
+                new String[] {st(x, "sound_advanced_meridian_horizon_authentic", "Authentic"),
+                        st(x, "sound_advanced_meridian_horizon_surround", "Surround")});
+        String[] four = {st(x, "common_strong", "Strong"), st(x, "common_normal", "Normal"), st(x, "common_soft", "Soft"), st(x, "common_off", "Off")};
+        sc.group(p, K_INTELLIQ, st(x, "sound_advanced_meridian_intelliq_title", "Meridian Intelli-Q"),
+                new int[] {0x4f2f, 0x4f30, 0x4f31, 0x4f32}, four);
+        sc.group(p, K_SDVC4, st(x, "sys_vol_speed_dependent_volume_control", "Speed Dependent Volume Control"),
+                new int[] {0x4f39, 0x4f3a, 0x4f3b, 0x4f3c}, four);
+        sc.check(p, K_SDVC2, st(x, "sys_vol_speed_dependent_volume_control", "Speed Dependent Volume Control"));
+    }
+
+    /** Guidance rows through smart control: the volume levels, voice type, charging prompts, briefing, welcome sound. */
+    private static void guidance(Page p, final Context x, final Scontrol sc) {
+        sc.attach(p.host());
+        boolean vols = false;
+        for (int k : VOLUMES) if (sc.has(k)) vols = true;
+        if (vols) p.drill(p.word(1039, "Guidance Volumes"), null, new Fn.Build() {
+            @Override public void build(Page q) {
+                sc.attach(q.host());
+                // Levels are set silently (the stock screen also plays a sample sound; that needs the stock audio focus path).
+                sc.level(q, V_NAVI, st(x, "sound_setting_volume_ratio_item_navigation_guidance", "Navigation Guidance"), 0, 45);
+                sc.level(q, V_NAVI_FX, st(x, "sound_setting_volume_ratio_item_navigation_sound_effect", "Navigation Alerts"), 0, 45);
+                sc.level(q, V_VR, st(x, "sound_setting_volume_ratio_item_vr_prompt", "Voice Recognition Prompts"), 0, 45);
+                sc.level(q, V_PROMPTS, st(x, "sound_setting_volume_ratio_general_system_prompt", "Voice Prompts"), 0, 45);
+                sc.level(q, V_RINGTONE, st(x, "sound_setting_volume_ratio_item_ringtone", "Ringtone"), 0, 45);
+                sc.level(q, V_ALERTS, st(x, "sound_setting_volume_ratio_item_alerts", "Alerts"), 0, 45);
+                // Cluster Voice Prompts: the stock app refuses the change with the ignition off (result 7).
+                sc.level(q, V_CLUSTER, st(x, "sound_setting_volume_ratio_item_cluster_voice", "Cluster Voice Prompts"), 0, 45);
+                sc.level(q, V_BEEP, st(x, "common_beep", "Beep"), 0, 45);
+            }
+        });
+        sc.group(p, K_VOICE_TYPE, st(x, "voice_type_setting", "Voice Type"), new int[] {0x5079, 0x507a},
+                new String[] {st(x, "voice_type_setting_two", "Voice Type 2"), st(x, "voice_type_setting_four", "Voice Type 4")});
+        sc.group(p, K_CVP, "Charging Voice Prompts", new int[] {0x508d, 0x508e, 0x508f, 0x5090},
+                new String[] {st(x, "common_high", "High"), st(x, "common_mid", "Medium"), st(x, "common_low", "Low"), st(x, "common_off", "Off")});
+        sc.check(p, K_WEATHER, st(x, "drv_guide_weather_info_brief", "Weather Information Briefing"));
+        sc.check(p, K_WELCOME, st(x, "drv_guide_cluster_welcome_sound", "Welcome Sound"));
+    }
+
+    /** The tabs that are smart-control only, then Connected Devices (note) and Reset. */
+    private static void smartTabs(Category c, final Context x, final Scontrol sc, final Audio a, boolean tone, boolean position) {
+        if (a == null && (any(sc, PREMIUM))) c.tab(c.word(1023, "Premium Sound"), new Fn.Build() {
+            @Override public void build(Page p) { premium(p, x, sc); }
+        });
+        if (a == null && (any(sc, VOLUMES) || sc.has(K_VOICE_TYPE) || sc.has(K_CVP))) c.tab(c.word(1038, "Guidance"), new Fn.Build() {
+            @Override public void build(Page p) { guidance(p, x, sc); }
+        });
+        if (any(sc, ACTIVE)) c.tab(c.word(1056, st(x, "soundsetting_active_sound", "Active Sound Design")), new Fn.Build() {
+            @Override public void build(Page p) {
+                sc.attach(p.host());
+                String[] three = {st(x, "common_largest", "Largest Change"), st(x, "common_moderate", "Moderate Change"), st(x, "common_smallest", "Smallest Change")};
+                sc.group(p, K_ASD, st(x, "active_sound_design_title", "Active Sound Design"), new int[] {0x5141, 0x5142, 0x5143, 0x5144},
+                        new String[] {three[0], three[1], three[2], st(x, "common_off", "Off")});
+                sc.group(p, K_VESS, st(x, "virtual_engine_sound_title", "Virtual Engine Sound System"), new int[] {0x5191, 0x5192, 0x5193}, three);
+                sc.group(p, K_EV_ASD, st(x, "active_sound_design_title", "Active Sound Design"), new int[] {0x5169, 0x516a, 0x516b, 0x516c},
+                        new String[] {st(x, "ev_asd_sound_mode_futuristic", "Futuristic"), st(x, "ev_asd_sound_mode_s_engine", "S-Engine"),
+                                st(x, "ev_asd_sound_mode_e_motor", "E-Motor"), st(x, "ev_asd_sound_mode_custom", "Custom Sound")});
+                sc.group(p, K_APS, st(x, "ev_asd_aps_title", "Acceleration Pedal Response"), new int[] {0x5187, 0x5188, 0x5189},
+                        new String[] {st(x, "ev_asd_aps_slow", "Slow"), st(x, "ev_asd_aps_normal", "Normal"), st(x, "ev_asd_aps_fast", "Fast")});
+                sc.group(p, K_ESE, st(x, "ese_title", "Advanced Settings"), new int[] {0x514b, 0x514c, 0x514d, 0x514e, 0x514f},
+                        new String[] {"Personal", "Sporty", "High Performance", "TCR", "Rally"});
+                sc.check(p, K_ANC, st(x, "active_noise_control_title", "Active Noise Control"));
+            }
+        });
+        if (sc.has(K_RNC)) c.tab(c.word(1087, st(x, "soundsetting_radio_nosise_ctrl", "Radio Noise")), new Fn.Build() {
+            @Override public void build(Page p) {
+                sc.attach(p.host());
+                sc.radios(p, K_RNC, new int[] {0x5209, 0x520a, 0x520b},
+                        new String[] {st(x, "sound_rnc_original_sound", "Original Sound"),
+                                st(x, "sound_rnc_min_noise_reduction", "Minimum Noise Reduction"),
+                                st(x, "sound_rnc_max_noise_reduction", "Max. Noise Reduction")});
+            }
+        });
+        // Driver Assistance warning sounds: safety related. Same stock write (CcVRcontrol.setDrvAsisstance), only on a tap.
+        if (any(sc, DA)) c.tab(c.word(1139, st(x, "soundsetting_drv_assist_warning", "Driver Assistance")), new Fn.Build() {
+            @Override public void build(Page p) {
+                sc.attach(p.host());
+                p.guide("set_bg_sound_driver_assistance_warning");
+                sc.group(p, K_DA_WARN, st(x, "drv_assist_warning_notifications", "Warning Volume"), new int[] {0x526d, 0x526e, 0x526f, 0x5270},
+                        new String[] {st(x, "common_high", "High"), st(x, "common_mid", "Medium"), st(x, "common_low", "Low"), st(x, "common_off", "Off")});
+                sc.check(p, K_DA_DRIVE_PRIO, st(x, "drv_guide_driving_safety_priority", "Driving Safety Priority"));
+                sc.check(p, K_DA_PARK_PRIO, st(x, "drv_guide_parking_safety_priority", "Parking Safety Priority"));
+            }
+        });
+        if (a != null) c.tab(st(x, "common_reset", "Reset"), new Fn.Build() {
+            @Override public void build(Page p) {
+                p.button("Reset Tone", new Fn.Act() { @Override public void run(final Host h) {
+                    Ask.confirm(h.activity(), "Reset Tone", "Bass, midrange and treble return to 0.", "Reset", new Runnable() {
+                        @Override public void run() { a.tone(10, 10, 10); h.refresh(); } });
+                } });
+                p.button("Reset Position", new Fn.Act() { @Override public void run(final Host h) {
+                    Ask.confirm(h.activity(), "Reset Position", "Fader and balance return to the centre.", "Reset", new Runnable() {
+                        @Override public void run() { a.fadeBalance(10, 10); h.refresh(); } });
+                } });
+            }
+        });
     }
 
     private static String muteKey(Context x) {
@@ -122,11 +284,10 @@ public final class SoundSection extends Section {
         return "sound_mute_nav_guide" + (t == 1 ? "_dr1" : t == 2 ? "_dr2" : "");
     }
 
-    @Override public Intent stockIntent(Context c) { return component("com.android.soundsettings", ".SoundSetting"); }
-
     // ---- stock feature checks (com.android.soundsettings.util.Utils), replicated with the same system calls ----
 
     private static int prop(String key, int def) {
+        if (dev.ccnc.settings.api.Demo.on()) return Car.propInt(key, def);
         try {
             Class<?> sp = Class.forName("android.os.SystemProperties");
             return (Integer) sp.getMethod("getInt", String.class, int.class).invoke(null, key, def);
@@ -134,6 +295,7 @@ public final class SoundSection extends Section {
     }
 
     private static String propStr(String key) {
+        if (dev.ccnc.settings.api.Demo.on()) return Car.prop(key);
         try {
             Class<?> sp = Class.forName("android.os.SystemProperties");
             Object v = sp.getMethod("get", String.class).invoke(null, key);
@@ -160,6 +322,7 @@ public final class SoundSection extends Section {
     }
 
     private static boolean hasFeature(String f) {
+        if (dev.ccnc.settings.api.Demo.on()) return Car.feature(f);
         try {
             Class<?> k = Class.forName("com.hkmc.Feature");
             return Boolean.TRUE.equals(k.getMethod("hasFeature", String.class).invoke(null, f));
@@ -175,6 +338,7 @@ public final class SoundSection extends Section {
 
         static synchronized Audio get(Context c) {
             if (sInstance != null) return sInstance;
+            if (dev.ccnc.settings.api.Demo.on()) { sInstance = new Audio(dev.ccnc.settings.api.Demo.manager("com.hkmc.media.MicomAudioManager")); return sInstance; }
             try {
                 Class<?> k = Class.forName("com.hkmc.media.MicomAudioManager");
                 Object o = k.getConstructor(Context.class).newInstance(c.getApplicationContext());
@@ -184,6 +348,7 @@ public final class SoundSection extends Section {
         }
 
         Object call(String name, Class<?>[] types, Object... args) {
+            if (m instanceof dev.ccnc.settings.api.Demo.Obj) return ((dev.ccnc.settings.api.Demo.Obj) m).call(name, args);
             try {
                 Method mt = m.getClass().getMethod(name, types);
                 return mt.invoke(m, args);

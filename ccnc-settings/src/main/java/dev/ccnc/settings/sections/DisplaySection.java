@@ -33,6 +33,7 @@ public final class DisplaySection extends Section {
 
     // ---- reflection helpers ----
     private static Object make(Context x, String cls) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.manager(cls);
         try {
             return Class.forName(cls).getConstructor(Context.class).newInstance(x.getApplicationContext());
         } catch (Throwable t) {
@@ -41,7 +42,10 @@ public final class DisplaySection extends Section {
         }
     }
 
-    private static Object call(Object o, String m) throws Exception { return o.getClass().getMethod(m).invoke(o); }
+    private static Object call(Object o, String m) throws Exception {
+        if (o instanceof dev.ccnc.settings.api.Demo.Obj) return ((dev.ccnc.settings.api.Demo.Obj) o).call(m);
+        return o.getClass().getMethod(m).invoke(o);
+    }
 
     private static int callInt(Object o, String m, int def) {
         try { return ((Number) call(o, m)).intValue(); } catch (Throwable t) { Log.w(TAG, m + " failed: " + t); return def; }
@@ -56,6 +60,7 @@ public final class DisplaySection extends Section {
     }
 
     private static void callSet(Object o, String m, int v) {
+        if (o instanceof dev.ccnc.settings.api.Demo.Obj) { ((dev.ccnc.settings.api.Demo.Obj) o).call(m, v); return; }
         try { o.getClass().getMethod(m, int.class).invoke(o, v); Log.i(TAG, m + "(" + v + ")"); }
         catch (Throwable t) { Log.w(TAG, m + " failed", t); }
     }
@@ -89,6 +94,7 @@ public final class DisplaySection extends Section {
             Log.w(TAG, "stock DisplaySettings missing: " + t);
             sc = null;
         }
+        if (sc == null && dev.ccnc.settings.api.Demo.on()) sc = x; // demo: stock strings resolve to nothing, the fallbacks show
         if (sVideo == null && sc != null) sVideo = make(x, "com.hkmc.setup.VideoSetupManager");
         final Object video = sVideo;
         if (video != null && callBool(video, "isNewLightSensorOn", false)) {
@@ -113,7 +119,34 @@ public final class DisplaySection extends Section {
             Object bl = make(x, "com.hkmc.bluelight.BluelightManager");
             if (bl != null) bluelight(c, bl);
         }
-        camera(c, x);
+        power(c, x);
+    }
+
+    /**
+     * Display Off (the stock top-bar button: MicomPowerManager.setScreenOn(false); a touch or key turns it back on)
+     * and Reset (the stock Illumination "Reset": the stock app's own manifest receiver resets its settings on
+     * com.android.settings.DISPLAYDEFAULT, an unprotected broadcast, so the reset is done by the stock code itself).
+     */
+    private void power(Category c, final Context x) {
+        final Object pm = dev.ccnc.settings.api.Car.manager(x, "com.hkmc.power.MicomPowerManager");
+        c.tab(str("menu_disp_off", "Display Off"), new Fn.Build() {
+            @Override public void build(Page p) {
+                if (pm != null) p.button(str("menu_disp_off", "Display Off"), new Fn.Act() {
+                    @Override public void run(dev.ccnc.settings.api.Host h) { dev.ccnc.settings.api.Car.setBool(pm, "setScreenOn", false); }
+                });
+                p.button(str("common_setting_reset_text", "Reset"), new Fn.Act() {
+                    @Override public void run(final dev.ccnc.settings.api.Host h) {
+                        dev.ccnc.settings.api.Ask.confirm(h.activity(), "Reset", "Display settings return to their defaults.", "Reset", new Runnable() {
+                            @Override public void run() {
+                                try { x.sendBroadcast(new Intent("com.android.settings.DISPLAYDEFAULT").setPackage(PKG)); }
+                                catch (Throwable t) { Log.w(TAG, "display reset: " + t); }
+                                new android.os.Handler().postDelayed(new Runnable() { @Override public void run() { h.refresh(); } }, 600);
+                            }
+                        });
+                    }
+                });
+            }
+        });
     }
 
     /**
@@ -281,6 +314,7 @@ public final class DisplaySection extends Section {
         String a = ap != null ? ap : callStr(bl, "get" + part + "AmPm");
         if (h < 1 || h > 12 || m < 0 || m > 59 || a == null) return;
         String v = h + "hh" + (m < 10 ? "0" : "") + m + "mm" + a.toUpperCase();
+        if (bl instanceof dev.ccnc.settings.api.Demo.Obj) { ((dev.ccnc.settings.api.Demo.Obj) bl).call("setOperationTime", which, v); return; }
         try {
             bl.getClass().getMethod("setOperationTime", int.class, String.class).invoke(bl, which, v);
             call(bl, "saveBluelightAlram");
@@ -288,17 +322,4 @@ public final class DisplaySection extends Section {
         } catch (Throwable t) { Log.w(TAG, "setOperationTime failed", t); }
     }
 
-    /** Stock DisplayCameraSetting: "Display Contents" opens com.android.vehiclesettings RearCameraSecondDepth. */
-    private void camera(Category c, Context x) {
-        final Intent i = component("com.android.vehiclesettings", "com.android.vehiclesettings.rearcamera.RearCameraSecondDepth");
-        if (x.getPackageManager().resolveActivity(i, 0) == null) return;
-        final String row = str("camera_settings_display_contents", "Display Contents");
-        c.tab(c.word(2031, "Camera Settings"), new Fn.Build() {
-            @Override public void build(Page p) { p.activity(row, i); }
-        });
-    }
-
-    // Left in the stock entry: Illumination "Reset" (factory reset of the display settings) and the top-bar
-    // "Display Off" button; complete() stays false for them.
-    @Override public Intent stockIntent(Context c) { return component("com.android.displaysettings", ".DisplaySetting"); }
 }

@@ -22,10 +22,16 @@ import dev.ccnc.settings.api.Page;
 
 /**
  * Paired-device list shared by the Bluetooth (com.android.btsettings) and Device Connections (PhoneProjection
- * "Bluetooth" tab) categories. Reads only: bonded devices from BluetoothAdapter and, per device, the profiles
- * whose proxy reports STATE_CONNECTED. Connect / disconnect / delete are left to the stock screen: every device
- * row opens it (h.openStock()). Profile wording: "Phone" (ccNC 5009 / stock BtSettings) for hands-free,
- * "Bluetooth Audio" (ccNC 5008) for A2DP.
+ * "Bluetooth" tab) categories: bonded devices from BluetoothAdapter and, per device, the connected profiles.
+ * Each device drills into its own ccNC page with the stock actions, made with the calls the stock BtSettings makes on
+ * the Broadcom connection manager (HfDeviceBTCMManager, com.broadcom.bt.jar):
+ *   Connect      IbtcmConnect(address)       (refused while IbtcmIsBusy(), as stock does)
+ *   Disconnect   IbtcmDisconnect(address)
+ *   Delete       IbtcmRemoveDevice(device), after a confirmation; BluetoothDevice.removeBond() when the manager isn't there
+ *   Add New      IbtcmSetDiscoverableMode(true, true): the unit becomes visible; the phone starts the pairing and the
+ *                unit's own pairing popup (system Bluetooth, not a settings screen) shows the passkey
+ * Needs BLUETOOTH / BLUETOOTH_ADMIN only (both granted at install). Not tested on car.
+ * Profile wording: "Phone" (ccNC 5009 / stock BtSettings) for hands-free, "Bluetooth Audio" (ccNC 5008) for A2DP.
  */
 final class BluetoothSectionDevices {
     private static final String TAG = "ccncSetup";
@@ -85,6 +91,31 @@ final class BluetoothSectionDevices {
      * com.broadcom.bt.jar is a shared library not on the boot class path; loaded with a DexClassLoader because the
      * settings manifest has no uses-library for it. The manager binds its service asynchronously: null on first use.
      */
+    /** The Broadcom connection manager (null until its service is bound, or when the jar isn't on this unit). */
+    static Object manager(Context x) {
+        try {
+            if (btcm == null) {
+                Class<?> k;
+                try {
+                    k = Class.forName("com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager");
+                } catch (Throwable notInPath) {
+                    ClassLoader cl = new dalvik.system.DexClassLoader("/system/framework/com.broadcom.bt.jar",
+                            x.getDir("bcbt", Context.MODE_PRIVATE).getPath(), null, Context.class.getClassLoader());
+                    k = cl.loadClass("com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager");
+                }
+                btcm = k.getMethod("getLocalBTCMManager", Context.class).invoke(null, x.getApplicationContext());
+            }
+        } catch (Throwable t) { Log.w(TAG, "bt: BTCM manager unavailable: " + t); }
+        return btcm;
+    }
+
+    private static Object btcmCall(Context x, String m, Class<?>[] types, Object... args) {
+        Object b = manager(x);
+        if (b == null) return null;
+        try { return b.getClass().getMethod(m, types).invoke(b, args); }
+        catch (Throwable t) { Log.w(TAG, "bt: " + m + " failed: " + t); return null; }
+    }
+
     private static boolean[] btcmProfiles(Context x, BluetoothDevice d) {
         try {
             if (btcm == null) {
@@ -134,21 +165,24 @@ final class BluetoothSectionDevices {
         return null;
     }
 
-    /** Adds one row per paired device (connected ones first); tap opens the category's stock screen. */
+    /** Adds "Add New" and one row per paired device (connected ones first); a device row drills into its page. */
     static void addRows(final Page p) {
+        if (dev.ccnc.settings.api.Demo.on()) { demoRows(p); return; }
         final Context x = p.context();
         lastHost = new WeakReference<Host>(p.host());
         ensureProxies(x);
         final String phone = p.word(5009, "Phone");
         final String audio = p.word(5008, "Bluetooth Audio");
         List<BluetoothDevice> list = new ArrayList<BluetoothDevice>();
+        BluetoothAdapter ad = null;
         try {
-            BluetoothAdapter a = BluetoothAdapter.getDefaultAdapter();
-            Set<BluetoothDevice> bonded = a != null ? a.getBondedDevices() : null;
+            ad = BluetoothAdapter.getDefaultAdapter();
+            Set<BluetoothDevice> bonded = ad != null ? ad.getBondedDevices() : null;
             if (bonded != null) list.addAll(bonded);
         } catch (Throwable t) {
             Log.w(TAG, "bt: bonded devices unreadable: " + t);
         }
+        if (ad == null) { p.note("Not available on this unit."); return; }
         final Map<BluetoothDevice, String> state = new LinkedHashMap<BluetoothDevice, String>();
         for (BluetoothDevice d : list) state.put(d, profiles(x, d, phone, audio));
         Collections.sort(list, new Comparator<BluetoothDevice>() {
@@ -158,19 +192,123 @@ final class BluetoothSectionDevices {
                 return name(a).compareToIgnoreCase(name(b));
             }
         });
+        final BluetoothAdapter adapter = ad;
+        p.drill("Add New", null, new Fn.Build() {
+            @Override public void build(Page q) {
+                String unit = null;
+                try { unit = adapter.getName(); } catch (Throwable ignored) { }
+                if (unit != null) q.info("Vehicle Name", unit);
+                q.note("Search for the vehicle name on your phone's Bluetooth menu and confirm the passkey shown.");
+                q.button("Make Vehicle Visible", new Fn.Act() {
+                    @Override public void run(Host h) {
+                        Object r = btcmCall(x, "IbtcmSetDiscoverableMode", new Class<?>[] { boolean.class, boolean.class }, true, true);
+                        android.widget.Toast.makeText(h.activity(), Boolean.TRUE.equals(r) ? "Waiting for the phone" : "--", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
         if (list.isEmpty()) {
             // Stock PhoneProjection / BtSettings wording for an empty list.
-            p.value("No devices have been paired.", null, new Fn.Act() {
-                @Override public void run(Host h) { h.openStock(); }
-            });
+            p.note("No devices have been paired.");
             return;
         }
         for (final BluetoothDevice d : list) {
             final String v = state.get(d);
-            p.value(name(d), new Fn.Str() { @Override public String get() { return v; } }, new Fn.Act() {
-                @Override public void run(Host h) { h.openStock(); }
+            p.drill(name(d), new Fn.Str() { @Override public String get() { return v; } }, new Fn.Build() {
+                @Override public void build(Page q) { devicePage(q, x, d, phone, audio); }
             });
         }
+    }
+
+    /** Emulator demo (dev.ccnc.settings.api.Demo): the same pages over two invented phones kept in memory. */
+    private static void demoRows(Page p) {
+        final String both = p.word(5009, "Phone") + ", " + p.word(5008, "Bluetooth Audio");
+        p.drill("Add New", null, new Fn.Build() {
+            @Override public void build(Page q) {
+                q.info("Vehicle Name", dev.ccnc.settings.api.Demo.getStr("bt.name", "Demo Vehicle"));
+                q.note("Search for the vehicle name on your phone's Bluetooth menu and confirm the passkey shown.");
+                q.button("Make Vehicle Visible", new Fn.Act() {
+                    @Override public void run(Host h) {
+                        android.widget.Toast.makeText(h.activity(), "Waiting for the phone", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
+        List<String> names = dev.ccnc.settings.api.Demo.btDevices();
+        if (names.isEmpty()) { p.note("No devices have been paired."); return; }
+        for (final String n : names) {
+            p.drill(n, new Fn.Str() { @Override public String get() { return dev.ccnc.settings.api.Demo.btConnected(n) ? both : null; } }, new Fn.Build() {
+                @Override public void build(Page q) {
+                    final boolean on = dev.ccnc.settings.api.Demo.btConnected(n);
+                    q.info(n, on ? both : "Not Connected");
+                    q.button(on ? "Disconnect" : "Connect", new Fn.Act() {
+                        @Override public void run(Host h) {
+                            // one phone at a time, like the unit's hands-free connection
+                            if (!on) for (String o : dev.ccnc.settings.api.Demo.btDevices()) dev.ccnc.settings.api.Demo.btConnect(o, false);
+                            dev.ccnc.settings.api.Demo.btConnect(n, !on);
+                            h.refresh();
+                        }
+                    });
+                    q.button("Delete", new Fn.Act() {
+                        @Override public void run(final Host h) {
+                            dev.ccnc.settings.api.Ask.confirm(h.activity(), n,
+                                    "Deleting a device also deletes its call history and contacts.", "Delete", new Runnable() {
+                                @Override public void run() { dev.ccnc.settings.api.Demo.btDelete(n); h.back(); }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    private static void later(final Host h, int ms) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override public void run() { try { h.refresh(); } catch (Throwable ignored) { } }
+        }, ms);
+    }
+
+    /** One paired device: state, Connect / Disconnect, Delete. */
+    private static void devicePage(Page q, final Context x, final BluetoothDevice d, String phone, String audio) {
+        lastHost = new WeakReference<Host>(q.host());
+        final String st = profiles(x, d, phone, audio);
+        q.info(name(d), st != null ? st : "Not Connected");
+        if (st == null) q.button("Connect", new Fn.Act() {
+            @Override public void run(Host h) {
+                if (Boolean.TRUE.equals(btcmCall(x, "IbtcmIsBusy", new Class<?>[0]))) {
+                    android.widget.Toast.makeText(h.activity(), "Bluetooth Is Busy", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                btcmCall(x, "IbtcmConnect", new Class<?>[] { String.class }, d.getAddress());
+                later(h, 2500); later(h, 6000);
+            }
+        });
+        else q.button("Disconnect", new Fn.Act() {
+            @Override public void run(final Host h) {
+                dev.ccnc.settings.api.Ask.confirm(h.activity(), name(d), "Disconnect the Bluetooth Device?", "Disconnect", new Runnable() {
+                    @Override public void run() {
+                        btcmCall(x, "IbtcmDisconnect", new Class<?>[] { String.class }, d.getAddress());
+                        later(h, 2000); later(h, 5000);
+                    }
+                });
+            }
+        });
+        q.button("Delete", new Fn.Act() {
+            @Override public void run(final Host h) {
+                dev.ccnc.settings.api.Ask.confirm(h.activity(), name(d),
+                        "Deleting a device also deletes its call history and contacts.", "Delete", new Runnable() {
+                    @Override public void run() {
+                        Object r = btcmCall(x, "IbtcmRemoveDevice", new Class<?>[] { BluetoothDevice.class }, d);
+                        if (r == null) {
+                            try { BluetoothDevice.class.getMethod("removeBond").invoke(d); }
+                            catch (Throwable t) { Log.w(TAG, "bt: removeBond failed: " + t); }
+                        }
+                        h.back();
+                        later(h, 1500);
+                    }
+                });
+            }
+        });
     }
 
     static String name(BluetoothDevice d) {

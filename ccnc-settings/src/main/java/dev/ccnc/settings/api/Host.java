@@ -10,8 +10,8 @@ public interface Host {
     void push(String title, Fn.Build page);
     /** Re-read every getter on the current page and redraw it. */
     void refresh();
-    /** The current category's stock Gen5W screen (stock Setup opener, else Section.stockIntent). */
-    void openStock();
+    /** Leave the current sub-page (same as the Back key); used after a confirm page has done its work. */
+    void back();
     /** startActivity with NEW_TASK, failures swallowed. */
     void start(Intent i);
 }

@@ -38,6 +38,8 @@ final class AppRepo {
         String subtitle;
         /** When set, the card sends this broadcast instead of starting {@link #component}. */
         Intent broadcast;
+        /** A hidden app, shown greyed with a crossed-out eye after the other apps in edit mode; a tap shows it again. */
+        boolean hiddenApp;
 
         Entry(ComponentName component, String label, Icons.Kind kind, Drawable appIcon) {
             this.component = component;

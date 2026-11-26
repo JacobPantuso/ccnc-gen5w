@@ -1,7 +1,6 @@
 package dev.ccnc.settings.sections;
 
 import android.content.Context;
-import android.content.Intent;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -10,7 +9,6 @@ import java.util.Map;
 
 import dev.ccnc.settings.api.Category;
 import dev.ccnc.settings.api.Fn;
-import dev.ccnc.settings.api.Host;
 import dev.ccnc.settings.api.Page;
 import dev.ccnc.settings.api.Section;
 import dev.ccnc.settings.sections.VehicleSectionUsm.Node;
@@ -19,6 +17,11 @@ import dev.ccnc.settings.sections.VehicleSectionUsm.Node;
  * Vehicle (stock classId com.android.vehiclesettings.VehicleSetting). Left list = the stock Vehicle Settings
  * menus this car has (stock order and feature checks, see VehicleSectionUsm), right = their items from the stock
  * app's item table, with values read / changed through the stock app's smart-control receiver (USM path).
+ * Level items (4xxxx: e.g. a volume or brightness step) are shown READ ONLY: their valid range is not in the stock
+ * table, and a safety-related level must not be written outside it. A stock group whose children this car doesn't
+ * report is left out.
+ * Nothing opens the stock Vehicle Settings screen. These are driving / safety systems: every write is the stock
+ * app's own (its smart-control receiver calls USMManager), and nothing is written unless a row is tapped.
  * Writes are NOT tested on the car.
  */
 public final class VehicleSection extends Section {
@@ -99,16 +102,16 @@ public final class VehicleSection extends Section {
                         } },
                         new Fn.SetInt() { @Override public void set(int i) { if (i >= 0 && i < opts.size()) u.set(k, opts.get(i).key); } });
             } else if (k >= 40000 && k < 50000) {
-                p.value(n.text,
-                        new Fn.Str() { @Override public String get() { int v = u.value(k); return v < 0 ? null : String.valueOf(v); } },
-                        new Fn.Act() { @Override public void run(Host h) { h.openStock(); } });
+                // Level: shown with its value. The valid range of a level is not in the stock table, so it is not
+                // written from here (a safety-related level must not be set outside its range): read only.
+                final int v = u.value(k);
+                p.info(n.text, v < 0 ? null : String.valueOf(v));
             } else if (k < 10000) {
                 if (!u.visible(n).isEmpty())
                     p.drill(n.text, null, new Fn.Build() { @Override public void build(Page q) { fill(u, q, n); } });
-                else p.stock(n.text);
+                // a group none of whose items this car reports: nothing to show
             }
         }
     }
 
-    @Override public Intent stockIntent(Context c) { return component(VehicleSectionUsm.PKG, ".VehicleSetting"); }
 }

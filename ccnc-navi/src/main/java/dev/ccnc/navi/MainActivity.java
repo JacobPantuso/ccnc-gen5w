@@ -2,83 +2,60 @@ package dev.ccnc.navi;
 
 import android.app.Activity;
 import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.RectF;
 import android.os.Bundle;
 import android.os.Handler;
-import android.text.TextPaint;
-import android.text.TextUtils;
-import android.util.Log;
-import android.view.Gravity;
-import android.view.MotionEvent;
-import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
-import dev.ccnc.common.Art;
 import dev.ccnc.common.Bg;
 import dev.ccnc.common.Fonts;
 import dev.ccnc.common.Palette;
+import dev.ccnc.common.Popup;
 
 /**
- * ccNC-style navigation hub. The map itself is the unit's MnSoft navigation app, which draws its
- * own screen, so this page opens it at the right place with the same intents the stock home and
- * hard keys use (ACTION_NAVI_SHORTCUT / TOTALSEARCH / CURRENTPOS / MENU / SETUP), and adds the
- * nearest-charging-station lookup EV drivers want (REQUEST_/RESPONSE_NEAREST_CHARGING_STATION).
+ * ccNC Navigation hub. The map and route guidance stay the unit's MnSoft engine (a native GL renderer that can't be
+ * restyled); everything around it is ccNC: Search, Saved Places, Home, Work, Categories and the nearest charging
+ * station, all handing the final route to the engine through {@link StockNavi}. Long press on Map: the engine's own
+ * menu, current position, settings and Cancel Route. Mirrored for right-hand drive.
  */
 public final class MainActivity extends Activity {
 
-    private static final String TAG = "ccncNavi";
-    private static final ComponentName NAVI = new ComponentName("com.mnsoft.navi", "com.mnsoft.navi.NaviApp");
-    private static final String A_PREFIX = "com.hkmc.intent.action.";
-    private static final String GIS = "com.hkmc.telematics.gis.";
-    private static final String REQ_CHARGER = GIS + "action.REQUEST_NEAREST_CHARGING_STATION";
-    private static final String RES_CHARGER = GIS + "action.RESPONSE_NEAREST_CHARGING_STATION";
-    private static final String START_NAV = GIS + "action.START_NAVIGATION";
-
     private final Handler handler = new Handler();
     private Hub hub;
-    private String chargerName, chargerDist, chargerNote;
-    private double chargerLat = Double.NaN, chargerLon = Double.NaN;
+    private Place charger;
+    private String chargerDist, chargerNote;
+    private int guidance = StockNavi.UNKNOWN;
+    private Place destination, home, work;
 
     private final BroadcastReceiver chargerReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            Bundle x = i.getExtras();
-            Log.i(TAG, "charger response: " + (x == null ? "{}" : dump(x)));
-            if (x == null) return;
-            String n = x.getString(GIS + "extra.NAME");
-            if (n != null) chargerName = n;
-            Object d = x.get(GIS + "extra.REMAIN_DISTANCE");
-            if (d != null) chargerDist = d + (x.get(GIS + "extra.REMAIN_DISTANCE_UNIT") != null ? " " + unit(x.get(GIS + "extra.REMAIN_DISTANCE_UNIT")) : "");
-            Object la = x.get(GIS + "extra.LAT"), lo = x.get(GIS + "extra.LON");
-            if (la instanceof Number && lo instanceof Number) { chargerLat = ((Number) la).doubleValue(); chargerLon = ((Number) lo).doubleValue(); }
+            String[] d = new String[1];
+            Place p = StockNavi.charger(i, d);
+            if (p == null) return;
+            charger = p;
+            chargerDist = d[0];
             chargerNote = null;
             hub.invalidate();
         }
     };
 
-    private static String unit(Object u) {
-        int v = u instanceof Number ? ((Number) u).intValue() : -1;
-        return v == 0 ? "m" : v == 1 ? "km" : v == 2 ? "mi" : String.valueOf(u);
-    }
-
-    private static String dump(Bundle b) {
-        StringBuilder sb = new StringBuilder();
-        for (String k : b.keySet()) sb.append(k).append('=').append(b.get(k)).append(' ');
-        return sb.toString().trim();
-    }
+    /** Live guidance state while the hub is visible (both broadcasts are sticky: the first delivery is the current value). */
+    private final BroadcastReceiver stateReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            if (StockNavi.GUIDE_STATUS.equals(i.getAction())) guidance = i.getIntExtra(StockNavi.GUIDE_STATE, StockNavi.UNKNOWN);
+            else destination = StockNavi.destinationFrom(i);
+            hub.invalidate();
+        }
+    };
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -88,7 +65,7 @@ public final class MainActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         root.addView(content, new FrameLayout.LayoutParams(-1, -1));
-        content.addView(topBar());
+        content.addView(dev.ccnc.common.Chrome.topBar(this, "Navigation"));
         hub = new Hub(this);
         content.addView(hub, new LinearLayout.LayoutParams(-1, 0, 1f));
         setContentView(root);
@@ -96,161 +73,125 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        registerReceiver(chargerReceiver, new IntentFilter(RES_CHARGER));
+        home = Places.home(this);
+        work = Places.work(this);
+        registerReceiver(chargerReceiver, new IntentFilter(StockNavi.RES_CHARGER));
+        IntentFilter f = new IntentFilter(StockNavi.GUIDE_STATUS);
+        f.addAction(StockNavi.DEST_INFO);
+        registerReceiver(stateReceiver, f);
+        hub.invalidate();
     }
 
     @Override protected void onPause() {
         try { unregisterReceiver(chargerReceiver); } catch (IllegalArgumentException ignored) {}
+        try { unregisterReceiver(stateReceiver); } catch (IllegalArgumentException ignored) {}
         handler.removeCallbacksAndMessages(null);
         super.onPause();
     }
 
     // ---- actions ----
 
-    /** Opens the map, then sends the navigation shortcut so it lands on the wanted screen. */
-    private void navi(final String action) {
-        try {
-            startActivity(new Intent(Intent.ACTION_MAIN).setComponent(NAVI).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Throwable t) {
-            Toast.makeText(this, "The navigation app isn't available", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (action == null) return;
-        handler.postDelayed(new Runnable() {
-            @Override public void run() { sendBroadcast(new Intent(A_PREFIX + action)); Log.i(TAG, "sent " + action); }
-        }, 800);
+    private void search(int tab) {
+        startActivity(new Intent(this, SearchActivity.class).putExtra(SearchActivity.EXTRA_TAB, tab));
+    }
+
+    private void goSaved(Place p, String label) {
+        if (p != null) { StockNavi.route(this, p); return; }
+        Toast.makeText(this, label + " isn't set: hold a place and choose Set as " + label, Toast.LENGTH_LONG).show();
+        search(SearchActivity.TAB_RECENT);
     }
 
     private void findCharger() {
-        chargerName = null; chargerDist = null; chargerLat = chargerLon = Double.NaN;
-        chargerNote = "…";
-        sendBroadcast(new Intent(REQ_CHARGER));
-        Log.i(TAG, "requested nearest charging station");
+        if (charger != null && charger.valid()) { StockNavi.route(this, charger); return; }
+        charger = null; chargerDist = null;
+        chargerNote = "Looking…";
+        StockNavi.requestCharger(this);
         hub.invalidate();
         handler.postDelayed(new Runnable() {
             @Override public void run() {
-                if (chargerName == null && chargerDist == null && "…".equals(chargerNote)) {
-                    chargerNote = "--";
-                    hub.invalidate();
-                }
+                if (charger == null) { chargerNote = "No answer. Tap to try again."; hub.invalidate(); }
             }
         }, 6000);
     }
 
-    private void navigateToCharger() {
-        if (Double.isNaN(chargerLat) || Double.isNaN(chargerLon)) { navi("ACTION_NAVI_TOTALSEARCH"); return; }
-        Intent i = new Intent(START_NAV);
-        i.putExtra(GIS + "extra.LAT", chargerLat);
-        i.putExtra(GIS + "extra.LON", chargerLon);
-        if (chargerName != null) i.putExtra(GIS + "extra.NAME", chargerName);
-        sendBroadcast(i);
-        navi(null);
+    private boolean guiding() { return guidance == StockNavi.GUIDING || guidance == StockNavi.SELECTING; }
+
+    private void mapMenu() {
+        final List<String> labels = new ArrayList<String>();
+        final List<Runnable> acts = new ArrayList<Runnable>();
+        if (guiding()) { labels.add("Cancel Route"); acts.add(new Runnable() { @Override public void run() { cancel(); } }); }
+        labels.add("Current Position"); acts.add(stock("ACTION_NAVI_CURRENTPOS"));
+        labels.add("Navigation Menu"); acts.add(stock("ACTION_NAVI_MENU"));
+        labels.add("Map Settings"); acts.add(stock("ACTION_NAVI_SETUP"));
+        new Popup(this, "Map", "These open the navigation app's own screens")
+                .options(labels.toArray(new String[labels.size()]), -1, new Popup.Pick() {
+                    @Override public void onPick(int i) { acts.get(i).run(); }
+                }).show();
+    }
+
+    private Runnable stock(final String shortcut) {
+        return new Runnable() { @Override public void run() { StockNavi.openMap(MainActivity.this, shortcut); } };
+    }
+
+    private void cancel() {
+        StockNavi.cancelRoute(this);
+        Toast.makeText(this, "Route Cancelled", Toast.LENGTH_SHORT).show();
     }
 
     // ---- the page ----
 
-    private final class Hub extends View {
-        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint bmp = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        private final RectF r = new RectF();
-        private final List<RectF> boxes = new ArrayList<RectF>();
-        private final List<Runnable> runs = new ArrayList<Runnable>();
-        private int down = -1;
-        private float k;
+    private final class Hub extends Board {
+        Hub(Context c) { super(c); }
 
-        Hub(Context c) {
-            super(c);
-            line.setStyle(Paint.Style.STROKE);
-            setClickable(true);
-        }
-
-        private int hit(float x, float y) {
-            for (int i = boxes.size() - 1; i >= 0; i--) if (boxes.get(i).contains(x, y)) return i;
-            return -1;
-        }
-
-        @Override public boolean onTouchEvent(MotionEvent e) {
-            switch (e.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN: down = hit(e.getX(), e.getY()); invalidate(); return true;
-                case MotionEvent.ACTION_UP:
-                    int h = hit(e.getX(), e.getY());
-                    int d = down;
-                    down = -1;
-                    invalidate();
-                    if (h >= 0 && h == d) runs.get(h).run();
-                    return true;
-                case MotionEvent.ACTION_CANCEL: down = -1; invalidate(); return true;
-                default: return true;
-            }
-        }
-
-        private float X(float v) { return v * k; }
-
-        private void txt(Canvas c, String t, float x, float y, float size, int color, int face, Paint.Align a, float maxW) {
-            text.setTypeface(Fonts.get(getContext(), face));
-            text.setTextSize(X(size));
-            text.setColor(color);
-            text.setTextAlign(a);
-            if (maxW > 0 && text.measureText(t) > X(maxW)) t = TextUtils.ellipsize(t, new TextPaint(text), X(maxW), TextUtils.TruncateAt.END).toString();
-            c.drawText(t, X(x), X(y), text);
-        }
-
-        private void tile(Canvas c, float l, float t, float w, float h, String icon, String title, String sub, final Runnable run, boolean big) {
-            RectF b = new RectF(X(l), X(t), X(l + w), X(t + h));
-            boxes.add(b);
-            runs.add(run);
-            boolean on = down == boxes.size() - 1;
-            fill.setColor(on ? Palette.PRESS : Palette.CARD);
-            c.drawRoundRect(b, X(20f), X(20f), fill);
-            line.setStrokeWidth(Math.max(1f, X(2f)));
-            line.setColor(Palette.BORDER);
-            c.drawRoundRect(b, X(20f), X(20f), line);
-            Bitmap ic = Art.icon(getContext(), icon);
+        private void tile(Canvas c, float l, float t, float w, float h, String icon, String title, String sub,
+                          Runnable run, Runnable hold, boolean big) {
+            l = mx(l, w);
+            int i = box(l, t, w, h, run, hold);
+            card(c, l, t, w, h, 20, isDown(i), Palette.CARD);
             float s = big ? 120f : 84f;
-            if (ic != null) {
-                r.set(X(l + 30f), X(t + 28f), X(l + 30f + s), X(t + 28f + s));
-                c.drawBitmap(ic, null, r, bmp);
-            }
-            txt(c, title, l + 30f, t + h - (big ? 78f : 56f), big ? 44f : 32f, Palette.TEXT, Fonts.SEMIBOLD, Paint.Align.LEFT, w - 50f);
-            if (sub != null) txt(c, sub, l + 30f, t + h - (big ? 30f : 20f), 22f, Palette.SUBTEXT, Fonts.REGULAR, Paint.Align.LEFT, w - 50f);
+            if ("*star".equals(icon)) star(c, l + 30 + s / 2f, t + 28 + s / 2f, s * 0.42f, false, Palette.TEXT);
+            else icon(c, icon, l + 30, t + 28, s);
+            float titleY = sub != null ? t + h - (big ? 78f : 56f) : t + h - (big ? 50f : 34f);
+            txt(c, title, l + 30, titleY, big ? 44f : 32f, Palette.TEXT, Fonts.SEMIBOLD, Paint.Align.LEFT, w - 50);
+            if (sub != null) txt(c, sub, l + 30, t + h - (big ? 30f : 20f), 22f, Palette.SUBTEXT, Fonts.REGULAR, Paint.Align.LEFT, w - 50);
         }
 
-        @Override protected void onDraw(Canvas c) {
-            // Tiles end at y 524 of the 620 design: clear of ccNC's 90 px bottom bar (back/home, now playing).
-            k = Math.min(getWidth() / 1920f, getHeight() / 620f);
+        @Override protected void paint(Canvas c) {
             // The 440-tall grid is centred in the space above ccNC's 90 px bottom bar.
-            final float oy = Math.max(0f, (getHeight() / k - 90f - 440f) / 2f) - 24f;
-            boxes.clear();
-            runs.clear();
-            tile(c, 60f, 24f + oy, 460f, 440f, "navi", "Map", null, new Runnable() { @Override public void run() { navi("ACTION_NAVI_SHORTCUT"); } }, true);
-            tile(c, 550f, 24f + oy, 400f, 205f, "navi_search", "Search", null, new Runnable() { @Override public void run() { navi("ACTION_NAVI_TOTALSEARCH"); } }, false);
-            tile(c, 980f, 24f + oy, 400f, 205f, "current", "Current Position", null, new Runnable() { @Override public void run() { navi("ACTION_NAVI_CURRENTPOS"); } }, false);
-            tile(c, 550f, 259f + oy, 400f, 205f, "navi_poi", "Menu", null, new Runnable() { @Override public void run() { navi("ACTION_NAVI_MENU"); } }, false);
-            tile(c, 980f, 259f + oy, 400f, 205f, "set_navi", "Settings", null, new Runnable() { @Override public void run() { navi("ACTION_NAVI_SETUP"); } }, false);
+            final float oy = Math.max(0f, (H() - 90f - 440f) / 2f) - 24f;
+            final float top = 24f + oy, low = 259f + oy;
 
-            // Nearest charging station.
-            String title = chargerName != null ? chargerName : "Charging Station";
-            String sub = chargerNote != null ? chargerNote : chargerDist != null ? chargerDist : null;
-            final boolean haveOne = chargerName != null || chargerDist != null;
-            tile(c, 1410f, 24f + oy, 450f, 440f, "navi_station", title, sub,
-                    new Runnable() { @Override public void run() { if (haveOne) navigateToCharger(); else findCharger(); } }, true);
+            String mapSub = null;
+            if (guiding() && destination != null) mapSub = "To " + destination.title();
+            else if (guiding()) mapSub = "Guidance on";
+            tile(c, 60f, top, 460f, 440f, "navi", "Map", mapSub,
+                    new Runnable() { @Override public void run() { StockNavi.openMap(MainActivity.this, "NAVI_SHORTCUT"); } },
+                    new Runnable() { @Override public void run() { mapMenu(); } }, true);
+            if (guiding()) { // a Cancel Route pill in the Map tile's top right
+                float pw = 190, ph = 56, pl = mx(60f + 460f - pw - 24f, pw), pt = top + 32f;
+                int i = box(pl, pt, pw, ph, new Runnable() { @Override public void run() { cancel(); } }, null);
+                card(c, pl, pt, pw, ph, ph / 2f, isDown(i), Palette.alpha(0xFFE5484D, 0x66));
+                txtMid(c, "Cancel Route", pl + pw / 2f, pt + ph / 2f, 22, Palette.TEXT, Fonts.SEMIBOLD, Paint.Align.CENTER, pw - 16);
+            }
+
+            tile(c, 550f, top, 400f, 205f, "navi_search", "Search", null,
+                    new Runnable() { @Override public void run() { search(SearchActivity.TAB_RECENT); } }, null, false);
+            tile(c, 550f, low, 400f, 205f, "*star", "Saved Places", null,
+                    new Runnable() { @Override public void run() { search(SearchActivity.TAB_FAVORITES); } }, null, false);
+
+            tile(c, 980f, top, 400f, 205f, "navi_home", "Home", home != null ? home.subtitle().isEmpty() ? home.title() : home.subtitle() : "Not Set",
+                    new Runnable() { @Override public void run() { goSaved(home, "Home"); } },
+                    new Runnable() { @Override public void run() { search(SearchActivity.TAB_RECENT); } }, false);
+            tile(c, 980f, low, 400f, 205f, "navi_office", "Work", work != null ? work.subtitle().isEmpty() ? work.title() : work.subtitle() : "Not Set",
+                    new Runnable() { @Override public void run() { goSaved(work, "Work"); } },
+                    new Runnable() { @Override public void run() { search(SearchActivity.TAB_RECENT); } }, false);
+
+            tile(c, 1410f, top, 450f, 205f, "navi_poi", "Categories", null,
+                    new Runnable() { @Override public void run() { startActivity(new Intent(MainActivity.this, CategoriesActivity.class)); } }, null, false);
+            String title = charger != null && !charger.name.isEmpty() ? charger.name : "Charging Station";
+            String sub = chargerNote != null ? chargerNote : chargerDist != null ? chargerDist + " · Tap to Go" : charger != null ? "Tap to Go" : "Find the Nearest";
+            tile(c, 1410f, low, 450f, 205f, "navi_station", title, sub,
+                    new Runnable() { @Override public void run() { findCharger(); } }, null, false);
         }
-    }
-
-    private View topBar() {
-        LinearLayout bar = dev.ccnc.common.Chrome.topBar(this, "Navigation");
-        bar.setLayoutParams(new LinearLayout.LayoutParams(-1, Palette.px(this, 56)));
-        return bar;
-    }
-
-    private TextView text(String t, float size, int color, int face) {
-        TextView v = new TextView(this);
-        v.setText(t);
-        v.setTextSize(size);
-        v.setTextColor(color);
-        v.setTypeface(Fonts.get(this, face));
-        return v;
     }
 }

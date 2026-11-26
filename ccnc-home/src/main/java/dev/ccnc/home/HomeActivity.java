@@ -53,18 +53,28 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     private int builtW = -1, builtH = -1;
     private Object profileWatch;        // follows profile switches for the welcome greeting
     private boolean landing;            // page 0 is the welcome page
+    private View profileChip;           // top-left profile chip, hidden on the welcome page
+    /** Hidden apps: in edit mode their cards follow the other apps (greyed, crossed-out eye; tap to show again). */
+    private List<AppRepo.Entry> hiddenEntries = new ArrayList<AppRepo.Entry>();
+    private final List<CardView> hiddenCards = new ArrayList<CardView>();
     private boolean resumed;
 
     // Edit/drag state.
     private boolean editing, dragging;
     private String dragKey;
+    private CardView dragCard;          // the view for dragKey (re-found if the pages are ever rebuilt mid-drag)
     private float grabDX, grabDY;       // finger offset from the dragged card's top-left
-    private float dragTransX, dragTransY; // live translation of the dragged card
+    private float lastRawX, lastRawY;   // last finger position: re-pins the card when the page scrolls under a still finger
     private boolean dragNeedsAnchor;    // long-press grab: anchor on the first MOVE
-    private Map<String, Integer> pendingAnim; // key -> pre-rebuild index, for shuffle animation
-    private int cardGap, cardStep;      // cardW + gap, for index math and animation
+    private boolean orderDirty;         // the order changed during this drag: saved once, on drop
+    private int cardSide, cardW, cardStep; // slot geometry: page side margin, card width, cardW + gap
+    private int edgeDir;                // -1 / 1 while the finger rests in an edge zone, else 0
+    private int aimIndex = -1;          // slot of the card the dragged one is held over the middle of, or -1
+    private FrameLayout cardLayer;      // every card, on one wide layer spanning all the card pages
+    private final Map<String, CardView> cardByKey = new HashMap<String, CardView>();
+    private final int[] loc = new int[2];
     private final Handler handler = new Handler();
-    private Runnable edgeScroll;
+    private static final android.view.animation.Interpolator EASE = new android.view.animation.DecelerateInterpolator(1.6f);
     private View editChrome;            // "Done" pill + hint, shown in edit mode
     private FrameLayout.LayoutParams pagerLp;
 
@@ -113,7 +123,9 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         // Top left: the active profile (photo + name), as in every ccNC top bar. Tap: ccNC Profile.
         FrameLayout.LayoutParams chip = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(64), Gravity.TOP | Gravity.LEFT);
         chip.leftMargin = px(20);
-        root.addView(new dev.ccnc.common.ProfileChip(this), chip);
+        // Hidden on the welcome page (its greeting already names the driver); fades in with the clock.
+        profileChip = new dev.ccnc.common.ProfileChip(this);
+        root.addView(profileChip, chip);
 
         pager = new Pager(this);
         strip = new LinearLayout(this);
@@ -165,9 +177,8 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         chrome.addView(tray, new LinearLayout.LayoutParams(-2, -2));
         // Spacer pushes Done to the right edge of the toolbar row.
         chrome.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
-        // Hidden Apps, Welcome Page and Reset Layout: the edit-mode toolbar (no long-press menus).
-        final TextView hiddenBtn = outlinePill("Hidden Apps");
-        hiddenBtn.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showHidden(); } });
+        // Welcome Page and Reset Layout: the edit-mode toolbar (no long-press menus). Hidden apps show as cards
+        // after the other apps while editing, so they need no button.
         final TextView resetBtn = outlinePill("Reset Layout");
         resetBtn.setOnClickListener(new View.OnClickListener() {
             long armed;
@@ -198,8 +209,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         });
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
         bp.rightMargin = px(12);
-        chrome.addView(hiddenBtn, bp);
-        chrome.addView(welcomeBtn, new LinearLayout.LayoutParams(bp));
+        chrome.addView(welcomeBtn, bp);
         chrome.addView(resetBtn, new LinearLayout.LayoutParams(bp));
         chrome.addView(done, new LinearLayout.LayoutParams(-2, -2));
         FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
@@ -209,13 +219,21 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         root.addView(editChrome, cl);
 
         pager.setListener(new Pager.Listener() {
-            @Override public void onPagePosition(float p) { indicator.setPosition(p); updateTray(); topBar.setClockAlpha(landing ? p : 1f); }
+            @Override public void onPagePosition(float p) {
+                indicator.setPosition(p); updateTray(); topBar.setClockAlpha(landing ? p : 1f);
+                setChipAlpha(landing ? p : 1f);
+                if (dragging) onPagerMovedInDrag();
+            }
         });
         pager.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
-                if (r - l != builtW || b - t != builtH) v.post(new Runnable() {
+                // Only a new width needs new pages. The height changes whenever edit mode adds or removes its
+                // toolbar row, and the cards (MATCH_PARENT) follow that by themselves: rebuilding there threw away
+                // the card that had just been picked up.
+                if (r - l != builtW) v.post(new Runnable() {
                     @Override public void run() { buildPages(); }
                 });
+                else builtH = b - t;
             }
         });
 
@@ -289,6 +307,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
 
     @Override protected void onPause() {
         super.onPause();
+        if (dragging) onDragEnd(false); // the rest of the gesture may never arrive: put the card down and save
         evHandler.removeCallbacks(evTick);
         if (nowPlaying != null) nowPlaying.stop();
         resumed = false;
@@ -317,8 +336,15 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     }
 
     private void reload() {
+        if (orderDirty) { repo.saveOrder(entries); orderDirty = false; } // mid-drag (package change): keep the order so far
         entries = demo ? AppRepo.demo(this) : repo.load(false);
         repo.applyStacks(entries);
+        hiddenEntries = new ArrayList<AppRepo.Entry>();
+        if (!demo) {
+            java.util.Set<String> shown = new java.util.HashSet<String>();
+            for (AppRepo.Entry e : entries) { shown.add(e.key()); if (e.stackBack != null) shown.add(e.stackBack.key()); }
+            for (AppRepo.Entry e : repo.load(true)) if (!shown.contains(e.key())) { e.hiddenApp = true; hiddenEntries.add(e); }
+        }
         proj = demo ? new Projection.State(true, true, false) : Projection.read(this);
         setWeatherSubtitle(weather.cached());
         updateWelcomeWeather();
@@ -562,84 +588,92 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         builtW = w;
         builtH = h;
         strip.removeAllViews();
+        cardByKey.clear();
 
         int side = px(36), gap = px(14);
         int perPage = Math.round((w - 2f * side + gap) / (190f * dp + gap));
         perPage = Math.max(3, Math.min(7, perPage));
         cardsPerPage = perPage;
-        int cardW = (w - 2 * side - (perPage - 1) * gap) / perPage;
+        cardSide = side;
+        cardW = (w - 2 * side - (perPage - 1) * gap) / perPage;
         cardStep = cardW + gap;
-        int cardPages = Math.max(1, (entries.size() + perPage - 1) / perPage);
+        int cardPages = cardPages();
         landing = welcomeEnabled();
         if (landing) {
             if (welcome.getParent() != null) ((ViewGroup) welcome.getParent()).removeView(welcome);
-            strip.addView(welcome, new LinearLayout.LayoutParams(w, h));
+            strip.addView(welcome, new LinearLayout.LayoutParams(w, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         int pages = cardPages + (landing ? 1 : 0);
 
-        for (int p = 0; p < cardPages; p++) {
-            FrameLayout page = new FrameLayout(this);
-            for (int i = 0; i < perPage; i++) {
-                int idx = p * perPage + i;
-                if (idx >= entries.size()) break;
-                CardView card = new CardView(this, entries.get(idx), bold, regular, this);
-                card.setTag(entries.get(idx).key());
-                if (editing && !entries.get(idx).key().equals(dragKey)) {
-                    card.setEditMode(true);
-                }
-                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(cardW, h);
-                lp.leftMargin = side + i * (cardW + gap);
-                page.addView(card, lp);
-            }
-            strip.addView(page, new LinearLayout.LayoutParams(w, h));
+        // One layer for all the card pages (a card's page is only its left margin), so a reorder moves the
+        // existing views instead of rebuilding them, and a dragged card isn't clipped at its page's edge.
+        cardLayer = new FrameLayout(this);
+        cardLayer.setClipChildren(false);
+        strip.setClipChildren(false);
+        for (int idx = 0; idx < entries.size(); idx++) {
+            CardView card = new CardView(this, entries.get(idx), bold, regular, this);
+            card.setTag(entries.get(idx).key());
+            card.setEditMode(editing);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(cardW, ViewGroup.LayoutParams.MATCH_PARENT);
+            lp.leftMargin = slotLeft(idx);
+            cardLayer.addView(card, lp);
+            cardByKey.put(entries.get(idx).key(), card);
         }
+        hiddenCards.clear();
+        for (int i = 0; i < hiddenEntries.size(); i++) {
+            CardView card = new CardView(this, hiddenEntries.get(i), bold, regular, this);
+            card.setTag("hidden:" + hiddenEntries.get(i).key());
+            card.setEditMode(true);
+            card.setVisibility(editing ? View.VISIBLE : View.GONE);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(cardW, ViewGroup.LayoutParams.MATCH_PARENT);
+            lp.leftMargin = slotLeft(entries.size() + i);
+            cardLayer.addView(card, lp);
+            hiddenCards.add(card);
+        }
+        strip.addView(cardLayer, new LinearLayout.LayoutParams(cardPages * w, ViewGroup.LayoutParams.MATCH_PARENT));
         indicator.setCount(pages);
         updateTray();
         topBar.setClockAlpha(landing && pager.page() == 0 ? 0f : 1f);
-        animateShuffleIn();
+        setChipAlpha(landing && pager.page() == 0 ? 0f : 1f);
+        if (dragKey != null) {
+            // Rebuilt under a held card (an app was installed, the screen width changed): pick the new view up.
+            dragCard = cardByKey.get(dragKey);
+            if (dragCard == null) cancelDrag();
+            else { lift(dragCard, false); if (!dragNeedsAnchor) pinDragCard(); }
+        }
         final int target = Math.min(keepPage, pages - 1);
         pager.post(new Runnable() {
             @Override public void run() { pager.toPage(target, false); indicator.setPosition(target); }
         });
     }
 
+    /** Left edge of list slot {@code idx} on the card layer. */
+    private int slotLeft(int idx) {
+        int per = Math.max(1, cardsPerPage);
+        return (idx / per) * builtW + cardSide + (idx % per) * cardStep;
+    }
+
     /**
-     * After a mid-drag rebuild, slides cards from their old positions to the new ones
-     * and pins the dragged card to the finger. {@link #pendingAnim} maps card keys to
-     * their pre-rebuild indices; null means "just build".
+     * Moves every card to the slot its place in {@link #entries} gives it, without rebuilding anything. A card
+     * that changes slot is put there at once and slides in from where it was drawn; one that is already sliding
+     * carries on from where it is, so quick back-and-forth reorders never jump.
      */
-    private void animateShuffleIn() {
-        if (pendingAnim == null && dragKey == null) return;
-        for (int p = 0; p < strip.getChildCount(); p++) {
-            if (!(strip.getChildAt(p) instanceof ViewGroup)) continue;
-            ViewGroup page = (ViewGroup) strip.getChildAt(p);
-            for (int i = 0; i < page.getChildCount(); i++) {
-                View v = page.getChildAt(i);
-                if (!(v instanceof CardView)) continue;
-                CardView card = (CardView) v;
-                String key = (String) card.getTag();
-                if (key == null) continue;
-                if (key.equals(dragKey)) {
-                    card.bringToFront();
-                    card.setEditMode(editing);
-                    card.setLifted(true);
-                    card.setScaleX(1.05f);
-                    card.setScaleY(1.05f);
-                    card.setAlpha(1f);
-                    card.setTranslationX(dragTransX);
-                    card.setTranslationY(dragTransY);
-                    continue;
-                }
-                if (pendingAnim == null) continue;
-                Integer old = pendingAnim.get(key);
-                if (old == null) continue;
-                int now = indexOfKey(key);
-                if (now < 0 || now == old) continue;
-                card.setTranslationX((old - now) * cardStep);
-                card.animate().translationX(0f).setDuration(180).start();
-            }
+    private void relayoutCards() {
+        for (int i = 0; i < entries.size(); i++) {
+            CardView c = cardByKey.get(entries.get(i).key());
+            if (c == null) continue;
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) c.getLayoutParams();
+            int left = slotLeft(i), delta = lp.leftMargin - left;
+            if (delta == 0) continue;
+            lp.leftMargin = left;
+            // Moved directly rather than with a layout pass: this also runs from scroll callbacks, where a
+            // requested layout would land a frame after the translation below.
+            if (c.getWidth() > 0) c.offsetLeftAndRight(left - c.getLeft()); else c.requestLayout();
+            if (c == dragCard && dragging) continue; // pinned to the finger below
+            c.setTranslationX(c.getTranslationX() + delta);
+            c.animate().translationX(0f).setDuration(200).setInterpolator(EASE).start();
         }
-        pendingAnim = null;
+        if (dragging && !dragNeedsAnchor) pinDragCard();
     }
 
     // ---- CardView.Listener ----
@@ -647,6 +681,10 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     @Override public void onOpen(AppRepo.Entry e) {
         if (e.broadcast != null) {
             sendBroadcast(new Intent(e.broadcast));
+            return;
+        }
+        if (Projection.ANDROID_AUTO_PKG.equals(e.component.getPackageName())) {
+            if (!Projection.openAndroidAuto(this)) Toast.makeText(this, "Android Auto can't be opened right now", Toast.LENGTH_SHORT).show();
             return;
         }
         Intent i = new Intent(Intent.ACTION_MAIN);
@@ -680,6 +718,12 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         tapEntry = null;
         enterEditMode();
         startDrag(e, null);
+        // From here the activity consumes the gesture, so the card would never see its UP and would stay drawn
+        // pressed for the whole drag: end the touch for the view tree now.
+        long now = android.os.SystemClock.uptimeMillis();
+        MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0);
+        super.dispatchTouchEvent(cancel);
+        cancel.recycle();
     }
 
     // ---- edit mode & drag-to-rearrange ----
@@ -695,12 +739,12 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
             switch (ev.getActionMasked()) {
                 case MotionEvent.ACTION_MOVE:
                     if (tapEntry != null && Math.hypot(ev.getRawX() - tapX, ev.getRawY() - tapY) > px(18)) tapEntry = null;
-                    onDragMove(ev);
+                    onDragMove(ev.getRawX(), ev.getRawY());
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     tapEntry = null;
-                    onDragEnd();
+                    onDragEnd(ev.getActionMasked() == MotionEvent.ACTION_UP);
                     break;
                 default:
                     break;
@@ -713,6 +757,11 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
                 return super.dispatchTouchEvent(ev);
             }
             CardView hit = cardAt(ev.getRawX(), ev.getRawY());
+            if (hit != null && hit.entry.hiddenApp) {
+                dev.ccnc.common.Chrome.beep(this);
+                unhideEntry(hit.entry);
+                return true;
+            }
             if (hit != null) {
                 float lx = ev.getRawX() - screenX(hit), ly = ev.getRawY() - screenY(hit);
                 if (hit.inBadge(lx, ly)) {
@@ -742,23 +791,57 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
 
     private void updateTray() {
         if (tray == null) return;
-        int per = Math.max(1, cardsPerPage);
-        int cardPages = Math.max(1, (entries.size() + per - 1) / per);
+        int cardPages = cardPages();
         int cur = pager.page() - (landing ? 1 : 0);
         tray.set(cardPages, cur >= 0 && cur < cardPages ? cur : -1);
     }
 
-    /** Puts the card at the end of the given page of cards. */
+    /** Pages of cards: the apps, plus the hidden ones while editing. */
+    private int cardPages() {
+        int per = Math.max(1, cardsPerPage);
+        int n = entries.size() + (editing ? hiddenEntries.size() : 0);
+        return Math.max(1, (n + per - 1) / per);
+    }
+
+    /**
+     * Shows or hides the hidden-app cards and resizes the card pages to match, without rebuilding the other cards
+     * (edit mode starts with a long-press that has just picked one of them up).
+     */
+    private void applyHiddenCards() {
+        if (cardLayer == null || builtW <= 0) return;
+        for (CardView c : hiddenCards) c.setVisibility(editing ? View.VISIBLE : View.GONE);
+        int cardPages = cardPages(), pages = cardPages + (landing ? 1 : 0);
+        ViewGroup.LayoutParams lp = cardLayer.getLayoutParams();
+        if (lp.width != cardPages * builtW) { lp.width = cardPages * builtW; cardLayer.setLayoutParams(lp); }
+        indicator.setCount(pages);
+        if (pager.page() > pages - 1) { final int last = pages - 1; pager.post(new Runnable() { @Override public void run() { pager.toPage(last, true); } }); }
+        updateTray();
+    }
+
+    /** Shows a hidden app again, at the end of the other apps (where its card already is). */
+    private void unhideEntry(AppRepo.Entry e) {
+        repo.setHidden(e.key(), false);
+        e.hiddenApp = false;
+        entries.add(e);
+        repo.saveOrder(entries);
+        orderDirty = false;
+        Toast.makeText(this, "Shown: " + e.label, Toast.LENGTH_SHORT).show();
+        reload();
+    }
+
+    /** Puts the card at the end of the given page of cards (the caller saves the order). */
     private void moveToPage(String key, int page) {
         int from = indexOfKey(key);
         if (from < 0) return;
         int per = Math.max(1, cardsPerPage), n = entries.size();
-        AppRepo.Entry moved = entries.remove(from);
-        int to = Math.min((page + 1) * per, n) - 1;
-        entries.add(Math.max(0, Math.min(to, entries.size())), moved);
-        repo.saveOrder(entries);
-        builtW = -1;
-        buildPages();
+        int to = Math.max(0, Math.min(Math.min((page + 1) * per, n) - 1, n - 1));
+        if (to != from) moveEntry(from, to);
+    }
+
+    private void moveEntry(int from, int to) {
+        entries.add(to, entries.remove(from));
+        orderDirty = true;
+        relayoutCards();
     }
 
     private void enterEditMode() {
@@ -772,141 +855,285 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
             @Override public void apply(CardView c) { c.setEditMode(true); }
         });
         editChrome.setVisibility(View.VISIBLE);
+        applyHiddenCards();
         maybeShowEditGuide();
     }
 
     private void exitEditMode() {
         editing = false;
-        stopDragVisuals();
-        handler.removeCallbacksAndMessages(null);
+        cancelDrag();
         pager.setPagingEnabled(true);
         pagerLp.topMargin = px(80);
         pager.setLayoutParams(pagerLp);
         forEachCard(new CardOp() {
             @Override public void apply(CardView c) {
+                c.animate().cancel(); // or a slide still running would keep writing the translation
                 c.setEditMode(false);
+                c.setLayerType(View.LAYER_TYPE_NONE, null);
                 c.setAlpha(1f);
                 c.setScaleX(1f); c.setScaleY(1f);
                 c.setTranslationX(0f); c.setTranslationY(0f);
             }
         });
         editChrome.setVisibility(View.GONE);
+        applyHiddenCards();
         View guide = root.findViewWithTag("edit_guide");
         if (guide != null) root.removeView(guide);
         repo.saveOrder(entries);
+        orderDirty = false;
+    }
+
+    /** The dragged look: on top, lit, slightly larger. On its own GPU layer so moving it never redraws it. */
+    private void lift(CardView card, boolean animate) {
+        card.animate().cancel(); // a drop glide still running: grab it where it is
+        card.bringToFront();
+        card.setPressed(false);
+        card.setLifted(true);
+        card.setAlpha(1f);
+        card.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        if (animate) card.animate().scaleX(1.05f).scaleY(1.05f).setDuration(120).setInterpolator(EASE).start();
+        else { card.setScaleX(1.05f); card.setScaleY(1.05f); }
     }
 
     private void startDrag(AppRepo.Entry e, MotionEvent down) {
+        CardView card = cardByKey.get(e.key());
+        if (card == null) return;
         dragging = true;
         dragKey = e.key();
-        CardView card = findCard(dragKey);
-        if (card == null) { dragging = false; return; }
-        card.bringToFront();
-        card.setLifted(true);
-        card.animate().scaleX(1.05f).scaleY(1.05f).setDuration(120).start();
-        card.setAlpha(1f);
-        dragTransX = card.getTranslationX();
-        dragTransY = card.getTranslationY();
-        grabDX = down != null ? down.getRawX() - (screenX(card) - dragTransX) : 0f;
-        grabDY = down != null ? down.getRawY() - (screenY(card) - dragTransY) : 0f;
+        dragCard = card;
+        lift(card, true);
         dragNeedsAnchor = down == null;
+        if (down != null) anchor(down.getRawX(), down.getRawY());
     }
 
-    private void onDragMove(MotionEvent ev) {
-        CardView card = findCard(dragKey);
-        if (card == null) return;
-        if (dragNeedsAnchor) {
-            grabDX = ev.getRawX() - (screenX(card) - card.getTranslationX());
-            grabDY = ev.getRawY() - (screenY(card) - card.getTranslationY());
-            dragNeedsAnchor = false;
-        }
-        dragTransX = ev.getRawX() - grabDX - (screenX(card) - card.getTranslationX());
-        dragTransY = ev.getRawY() - grabDY - (screenY(card) - card.getTranslationY());
-        dragTransY = Math.max(-card.getHeight() * 0.2f, Math.min(card.getHeight() * 0.2f, dragTransY));
-        card.setTranslationX(dragTransX);
-        card.setTranslationY(dragTransY);
+    /** X of the card layer inside the strip: it follows the welcome page when there is one. */
+    private int layerX() { return landing ? builtW : 0; }
+
+    /** Remembers where on the card the finger holds it. */
+    private void anchor(float rawX, float rawY) {
+        lastRawX = rawX;
+        lastRawY = rawY;
+        pager.getLocationOnScreen(loc);
+        int left = ((FrameLayout.LayoutParams) dragCard.getLayoutParams()).leftMargin;
+        grabDX = rawX - loc[0] + pager.getScrollX() - layerX() - (left + dragCard.getTranslationX());
+        grabDY = rawY - loc[1] - dragCard.getTranslationY();
+        dragNeedsAnchor = false;
+    }
+
+    /**
+     * Keeps the dragged card under the finger, whatever its slot and the pager's scroll position are. Works
+     * from the slot geometry, not from where views happen to be on screen, so it is right in the middle of a
+     * reorder or a page flip too. Leaves the pager's screen position in {@link #loc}.
+     */
+    private void pinDragCard() {
+        if (dragCard == null) return;
+        pager.getLocationOnScreen(loc);
+        int left = ((FrameLayout.LayoutParams) dragCard.getLayoutParams()).leftMargin;
+        float limit = pager.getHeight() * 0.2f;
+        dragCard.setTranslationX(lastRawX - loc[0] + pager.getScrollX() - layerX() - grabDX - left);
+        dragCard.setTranslationY(Math.max(-limit, Math.min(limit, lastRawY - loc[1] - grabDY)));
+    }
+
+    private void onDragMove(float rawX, float rawY) {
+        if (dragCard == null) return;
+        if (dragNeedsAnchor) anchor(rawX, rawY);
+        lastRawX = rawX;
+        lastRawY = rawY;
+        pinDragCard();
 
         // Over a page chip: show that page and wait for the drop; the list order isn't touched.
-        dragChip = tray != null && editChrome.getVisibility() == View.VISIBLE ? tray.chipAt(ev.getRawX(), ev.getRawY()) : -1;
-        if (tray != null) tray.setHover(dragChip);
-        if (dragChip >= 0) {
-            int want = dragChip + (landing ? 1 : 0);
-            if (pager.page() != want) pager.toPage(want, true);
+        int chip = tray != null && editChrome.getVisibility() == View.VISIBLE ? tray.chipAt(rawX, rawY) : -1;
+        if (chip != dragChip) {
+            dragChip = chip;
+            if (tray != null) tray.setHover(chip);
+            // Once per chip: asking again on every move restarts the scroll, and the pager then jumps instead.
+            if (chip >= 0) pager.toPage(chip + (landing ? 1 : 0), true);
+        }
+        if (chip >= 0) {
+            clearAim();
+            clearPending();
+            setEdge(0);
             return;
         }
-        // Held over the middle of another card: after a moment it lights up, and dropping groups the two.
-        CardView under = groupCandidate(ev.getRawX(), ev.getRawY());
-        if (under != null) {
-            String uk = under.entry.key();
-            if (!uk.equals(hoverKey)) { clearGroupTarget(); hoverKey = uk; hoverSince = ev.getEventTime(); }
-            else if (ev.getEventTime() - hoverSince >= 500 && groupTarget == null) { groupTarget = under; under.setStackTarget(true); }
-            return; // no reordering while aiming at a card
-        }
-        clearGroupTarget();
-        // Where in the list does the finger sit now?
-        int[] pl = new int[2];
-        pager.getLocationOnScreen(pl);
-        float xInStrip = ev.getRawX() - pl[0] + pager.getScrollX();
-        if (landing) xInStrip -= pager.getWidth();
-        int target = Math.round((xInStrip - px(36)) / (float) Math.max(1, cardStep));
-        target = Math.max(0, Math.min(entries.size() - 1, target));
-        int current = indexOfKey(dragKey);
-        if (target != current && current >= 0) {
-            Map<String, Integer> before = new HashMap<String, Integer>();
-            for (int i = 0; i < entries.size(); i++) before.put(entries.get(i).key(), i);
-            AppRepo.Entry moved = entries.remove(current);
-            entries.add(target, moved);
-            repo.saveOrder(entries);
-            pendingAnim = before;
-            buildPages();
-        }
-        scheduleEdgeScroll(ev.getRawX() - pl[0]);
+        float x = rawX - loc[0];
+        setEdge(x > pager.getWidth() - px(56) ? 1 : x < px(56) ? -1 : 0);
+        if (pagerSettled()) retarget(); // mid-flip the slots are flying past: decided when the page lands
     }
 
-    private void onDragEnd() {
-        CardView card = dragKey != null ? findCard(dragKey) : null;
-        if (card != null) {
-            // Back to a normal edit-mode card: not lifted (so it dims and gets its edit outline again) and full size.
-            card.setLifted(false);
-            if (editing) card.setEditMode(true);
-            card.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(160).start();
+    private boolean pagerSettled() { return builtW > 0 && pager.getScrollX() % builtW == 0; }
+
+    /**
+     * Decides what the dragged card is over, going by the card's own centre (what the eye follows) on the page
+     * that is showing. Into another slot: that card makes room. Over the middle of a single card: nothing
+     * moves, and holding there lights it up as a group target.
+     */
+    private void retarget() {
+        int cur = indexOfKey(dragKey), n = entries.size(), per = Math.max(1, cardsPerPage);
+        int page = pager.page() - (landing ? 1 : 0);
+        if (cur < 0 || page < 0 || dragCard == null) return;
+        int left = ((FrameLayout.LayoutParams) dragCard.getLayoutParams()).leftMargin;
+        float xr = left + dragCard.getTranslationX() + cardW / 2f - page * builtW - cardSide;
+        int col = (int) Math.floor((xr + (cardStep - cardW) / 2f) / cardStep);
+        col = Math.max(0, Math.min(per - 1, col));
+        int slot = page * per + col;
+        float f = (xr - col * cardStep) / Math.max(1, cardW); // 0..1 across the slot
+        if (slot >= n) {
+            // The empty space after the last card: go to the end.
+            clearAim();
+            clearPending();
+            if (cur != n - 1) moveEntry(cur, n - 1);
+            return;
         }
-        dragging = false;
-        dragNeedsAnchor = false;
-        handler.removeCallbacksAndMessages(null);
+        // A neighbour only gives way once the card is properly into its slot. Without this dead band a finger
+        // resting on the boundary swaps the two back and forth.
+        if (slot == cur || (slot == cur + 1 && f < 0.08f) || (slot == cur - 1 && f > 0.92f)) {
+            clearAim();
+            clearPending();
+            return;
+        }
+        if (entries.get(cur).stackBack == null && entries.get(slot).stackBack == null) {
+            if (f >= 0.30f && f <= 0.70f) {
+                clearPending();
+                if (aimIndex != slot) {
+                    clearAim();
+                    aimIndex = slot;
+                    handler.postDelayed(armGroup, 500); // a timer, not move events: a still finger sends none
+                }
+                return; // no reordering while aiming at a card
+            }
+            // On the way in, the card first crosses the near edge of the one it may be heading for the middle
+            // of. Making room at once would whisk that card away before it could ever be aimed at, so wait a
+            // moment: still on the edge then, it's a reorder. (Past the middle, out the far side: no wait.)
+            boolean nearEdge = slot > cur ? f < 0.30f : f > 0.70f;
+            if (nearEdge && !(reorderDue && pendingSlot == slot)) {
+                clearAim();
+                if (pendingSlot != slot) {
+                    clearPending();
+                    pendingSlot = slot;
+                    handler.postDelayed(reorderLater, 160);
+                }
+                return;
+            }
+        }
+        clearAim();
+        clearPending();
+        moveEntry(cur, slot);
+    }
+
+    private int pendingSlot = -1;       // slot a short dwell on its near edge will reorder into, or -1
+    private boolean reorderDue;         // set while that dwell timer re-runs retarget()
+
+    private void clearPending() {
+        handler.removeCallbacks(reorderLater);
+        pendingSlot = -1;
+    }
+
+    private final Runnable reorderLater = new Runnable() {
+        @Override public void run() {
+            if (!dragging || dragChip >= 0 || !pagerSettled()) { pendingSlot = -1; return; }
+            reorderDue = true;
+            retarget();
+            reorderDue = false;
+        }
+    };
+
+    private final Runnable armGroup = new Runnable() {
+        @Override public void run() {
+            if (!dragging || aimIndex < 0 || aimIndex >= entries.size()) return;
+            CardView c = cardByKey.get(entries.get(aimIndex).key());
+            if (c == null) return;
+            groupTarget = c;
+            c.setStackTarget(true);
+        }
+    };
+
+    /** The page moved under the finger (edge flip, page chip): the card stays with the finger, not the page. */
+    /** The profile chip follows the clock: gone on the welcome page, so it can't be tapped there either. */
+    private void setChipAlpha(float a) {
+        if (profileChip == null) return;
+        a = Math.max(0f, Math.min(1f, a));
+        profileChip.setAlpha(a);
+        profileChip.setVisibility(a <= 0.01f ? View.INVISIBLE : View.VISIBLE);
+    }
+
+    private void onPagerMovedInDrag() {
+        if (dragCard == null || dragNeedsAnchor) return;
+        pinDragCard();
+        if (pagerSettled()) {
+            // Landed: slot the card into the page that arrived. Posted, as this runs inside the scroll's draw pass.
+            handler.removeCallbacks(retargetLater);
+            handler.post(retargetLater);
+        }
+    }
+
+    private final Runnable retargetLater = new Runnable() {
+        @Override public void run() { if (dragging && dragChip < 0 && pagerSettled()) retarget(); }
+    };
+
+    /** @param drop false when the gesture was cancelled: the card goes to its slot, nothing is grouped or moved. */
+    private void onDragEnd(boolean drop) {
+        final CardView card = dragCard;
         String droppedKey = dragKey;
-        AppRepo.Entry groupWith = groupTarget != null ? groupTarget.entry : null;
-        clearGroupTarget();
-        int chip = dragChip;
+        AppRepo.Entry groupWith = drop && groupTarget != null ? groupTarget.entry : null;
+        int aim = drop && groupTarget == null ? aimIndex : -1;
+        int chip = drop ? dragChip : -1;
+        cancelDrag();
+        if (droppedKey == null) return;
+        if (chip >= 0) moveToPage(droppedKey, chip);
+        else if (aim >= 0 && aim < entries.size()) {
+            // Let go over a card before it lit up as a group target: that was a move to its slot.
+            int cur = indexOfKey(droppedKey);
+            if (cur >= 0 && cur != aim) moveEntry(cur, aim);
+        }
+        if (orderDirty) { repo.saveOrder(entries); orderDirty = false; } // once per drag, not once per swap
+        if (groupWith != null) { group(groupWith, droppedKey); return; } // rebuilds the pages
+        if (card == null) return;
+        // Glide from the finger into the slot. The card stays lit and on top until it lands, then becomes a
+        // normal edit-mode card again (dimmed, with its edit outline).
+        card.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(220).setInterpolator(EASE)
+                .withEndAction(new Runnable() {
+                    @Override public void run() {
+                        card.setLifted(false);
+                        card.setLayerType(View.LAYER_TYPE_NONE, null);
+                    }
+                }).start();
+    }
+
+    /** Forgets the drag: timers, hover states, flags. Leaves the card's look to the caller. */
+    private void cancelDrag() {
+        handler.removeCallbacks(edgeFlip);
+        handler.removeCallbacks(retargetLater);
+        clearAim();
+        clearPending();
+        edgeDir = 0;
         dragChip = -1;
         if (tray != null) tray.setHover(-1);
-        stopDragVisuals();
-        repo.saveOrder(entries);
-        if (chip >= 0 && droppedKey != null) moveToPage(droppedKey, chip);
-        else if (groupWith != null && droppedKey != null) group(groupWith, droppedKey);
-    }
-
-    private void stopDragVisuals() {
+        dragging = false;
+        dragNeedsAnchor = false;
         dragKey = null;
-        dragTransX = dragTransY = 0f;
+        dragCard = null;
     }
 
-    /** Holding the finger near the screen edge flips to the next/previous page. */
-    private void scheduleEdgeScroll(final float xInPager) {
-        final int w = pager.getWidth();
-        final int dir = xInPager > w - px(56) ? 1 : xInPager < px(56) ? -1 : 0;
-        handler.removeCallbacksAndMessages(null);
-        if (dir == 0 || pager.pageCount() <= 1) return;
-        edgeScroll = new Runnable() {
-            @Override public void run() {
-                if (!dragging) return;
-                int p = pager.page() + dir;
-                if (p >= 0 && p < pager.pageCount()) pager.toPage(p, true);
-                handler.postDelayed(this, 700);
-            }
-        };
-        handler.postDelayed(edgeScroll, 450);
+    /**
+     * Resting near a screen edge flips to the next/previous page. The timer starts when the finger enters the
+     * zone and is left alone while it stays there: restarting it on every move meant it never fired under a
+     * real (always slightly moving) finger.
+     */
+    private void setEdge(int dir) {
+        if (dir == edgeDir) return;
+        edgeDir = dir;
+        handler.removeCallbacks(edgeFlip);
+        if (dir != 0 && pager.pageCount() > 1) handler.postDelayed(edgeFlip, 450);
     }
+
+    private final Runnable edgeFlip = new Runnable() {
+        @Override public void run() {
+            if (!dragging || edgeDir == 0) return;
+            int p = pager.page() + edgeDir, first = landing ? 1 : 0; // never onto the welcome page
+            if (p >= first && p < pager.pageCount()) pager.toPage(p, true);
+            handler.postDelayed(this, 800);
+        }
+    };
 
     /** First time edit mode runs: ccNC-style full-screen guide (see pop_bg_guide_edit_home). */
     private void maybeShowEditGuide() {
@@ -932,7 +1159,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         panel.addView(title);
 
         TextView body = new TextView(this);
-        body.setText("Hold and drag an app to rearrange it, or tap it to move it to another page.\nTap \u2212 on an app to hide it.");
+        body.setText("Hold and drag an app to rearrange it. Drag it to the screen edge, or onto the page markers below, to move it to another page.\nTap \u2212 on an app to hide it; hidden apps wait after the others, tap one to show it again.");
         body.setTextSize(17f);
         body.setTypeface(regular);
         body.setTextColor(light ? 0xFF5B6873 : 0xFFB4BEC6);
@@ -969,13 +1196,10 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         repo.setHidden(e.key(), true);
         entries.remove(e);
         repo.saveOrder(entries);
-        if (dragKey != null && dragKey.equals(e.key())) {
-            dragging = false;
-            stopDragVisuals();
-        }
+        if (dragging) cancelDrag();
         Toast.makeText(this, "Hidden: " + e.label, Toast.LENGTH_SHORT).show();
         if (entries.isEmpty()) exitEditMode();
-        else { builtW = -1; buildPages(); }
+        reload(); // its card moves to the hidden apps after the others
     }
 
     // ---- card lookup helpers ----
@@ -983,40 +1207,22 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     private interface CardOp { void apply(CardView c); }
 
     private void forEachCard(CardOp op) {
-        for (int p = 0; p < strip.getChildCount(); p++) {
-            if (!(strip.getChildAt(p) instanceof ViewGroup)) continue;
-            ViewGroup page = (ViewGroup) strip.getChildAt(p);
-            for (int i = 0; i < page.getChildCount(); i++) {
-                View v = page.getChildAt(i);
-                if (v instanceof CardView) op.apply((CardView) v);
-            }
+        if (cardLayer == null) return;
+        for (int i = 0; i < cardLayer.getChildCount(); i++) {
+            View v = cardLayer.getChildAt(i);
+            if (v instanceof CardView) op.apply((CardView) v);
         }
-    }
-
-    private CardView findCard(String key) {
-        for (int p = 0; p < strip.getChildCount(); p++) {
-            if (!(strip.getChildAt(p) instanceof ViewGroup)) continue;
-            ViewGroup page = (ViewGroup) strip.getChildAt(p);
-            for (int i = 0; i < page.getChildCount(); i++) {
-                View v = page.getChildAt(i);
-                if (v instanceof CardView && ((CardView) v).entry.key().equals(key)) return (CardView) v;
-            }
-        }
-        return null;
     }
 
     /** Topmost card containing the raw screen point, or null. */
     private CardView cardAt(float rawX, float rawY) {
         CardView found = null;
-        for (int p = 0; p < strip.getChildCount(); p++) {
-            if (!(strip.getChildAt(p) instanceof ViewGroup)) continue;
-            ViewGroup page = (ViewGroup) strip.getChildAt(p);
-            for (int i = 0; i < page.getChildCount(); i++) {
-                View v = page.getChildAt(i);
-                if (!(v instanceof CardView)) continue;
-                float l = screenX(v), t = screenY(v);
-                if (rawX >= l && rawX <= l + v.getWidth() && rawY >= t && rawY <= t + v.getHeight()) found = (CardView) v;
-            }
+        if (cardLayer == null) return null;
+        for (int i = 0; i < cardLayer.getChildCount(); i++) {
+            View v = cardLayer.getChildAt(i);
+            if (!(v instanceof CardView) || v.getVisibility() != View.VISIBLE) continue;
+            float l = screenX(v), t = screenY(v);
+            if (rawX >= l && rawX <= l + v.getWidth() && rawY >= t && rawY <= t + v.getHeight()) found = (CardView) v;
         }
         return found;
     }
@@ -1058,36 +1264,13 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
 
     // ---- stacks: two half-height cards sharing one slot ----
 
-    private String hoverKey;
-    private long hoverSince;
-    private CardView groupTarget;
+    private CardView groupTarget;       // lit: dropping the dragged card here groups the two
 
-    private void clearGroupTarget() {
+    private void clearAim() {
+        handler.removeCallbacks(armGroup);
+        aimIndex = -1;
         if (groupTarget != null) groupTarget.setStackTarget(false);
         groupTarget = null;
-        hoverKey = null;
-    }
-
-    /** A single card (not the dragged one, not already a stack) whose middle half the finger is over. */
-    private CardView groupCandidate(float rawX, float rawY) {
-        AppRepo.Entry dragged = null;
-        for (AppRepo.Entry e : entries) if (e.key().equals(dragKey)) dragged = e;
-        if (dragged == null || dragged.stackBack != null) return null;
-        for (int p = 0; p < strip.getChildCount(); p++) {
-            if (!(strip.getChildAt(p) instanceof ViewGroup)) continue;
-            ViewGroup page = (ViewGroup) strip.getChildAt(p);
-            for (int i = 0; i < page.getChildCount(); i++) {
-                View v = page.getChildAt(i);
-                if (!(v instanceof CardView)) continue;
-                CardView cv = (CardView) v;
-                if (cv.entry.key().equals(dragKey) || cv.entry.stackBack != null) continue;
-                int[] o = new int[2];
-                v.getLocationOnScreen(o);
-                float l = o[0] - v.getTranslationX(), t = o[1] - v.getTranslationY(), w = v.getWidth(), h = v.getHeight();
-                if (rawX >= l + w * 0.25f && rawX <= l + w * 0.75f && rawY >= t && rawY <= t + h) return cv;
-            }
-        }
-        return null;
     }
 
     /** Groups the dropped card under the one it was held over (the target stays on top). */
@@ -1166,26 +1349,6 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
             ViewGroup g = (ViewGroup) v;
             for (int i = 0; i < g.getChildCount(); i++) invalidateAll(g.getChildAt(i));
         }
-    }
-
-    private void showHidden() {
-        final List<AppRepo.Entry> hidden = new ArrayList<AppRepo.Entry>();
-        java.util.Set<String> keys = repo.hidden();
-        for (AppRepo.Entry e : repo.load(true)) if (keys.contains(e.key())) hidden.add(e);
-        if (hidden.isEmpty()) {
-            Toast.makeText(this, "No Hidden Apps", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String[] labels = new String[hidden.size()];
-        for (int i = 0; i < labels.length; i++) labels[i] = hidden.get(i).label;
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("Tap to Show Again")
-                .setItems(labels, new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) {
-                        repo.setHidden(hidden.get(which).key(), false);
-                        reload();
-                    }
-                }).show();
     }
 
     private void launch(Intent i, String what) {

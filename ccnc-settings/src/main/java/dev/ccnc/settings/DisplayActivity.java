@@ -1,9 +1,7 @@
 package dev.ccnc.settings;
 
 import android.app.Activity;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -11,7 +9,6 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import dev.ccnc.common.Bg;
 import dev.ccnc.common.Fonts;
@@ -119,14 +116,9 @@ public final class DisplayActivity extends Activity {
         return r;
     }
 
+    /** ccNC Setup's Display category (the stock Display screen is no longer opened). */
     private void openStock() {
-        try {
-            startActivity(new Intent(Intent.ACTION_MAIN).setComponent(
-                    new ComponentName("com.android.displaysettings", "com.android.displaysettings.DisplaySetting"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Throwable t) {
-            Toast.makeText(this, "Display settings aren't available", Toast.LENGTH_SHORT).show();
-        }
+        Ui.openSetup(this, "com.android.DisplaySettingsModeCheck");
     }
 
     private View topBar() {

@@ -76,16 +76,16 @@ public final class Profiles {
     }
 
     /**
-     * The profile the car identified from the key or digital key at this start (UserProfileManager.getPreBootUserType(),
-     * what the stock start-up screen highlights), else the active profile.
+     * The profile to start on: the one the car is on now (UserProfileManager.getUserType()), exactly what the stock
+     * start-up screen highlights first.
+     *
+     * Key / digital-key recognition isn't a feature the head unit checks for. On cars that support it, the body module
+     * sends the key's profile over the micom (UserProfileService.onHandlePreBootUserTypeChanged: byte 1/2/3 = profile
+     * 0/1/2, anything else = -1 "no match") and the service switches to that profile, so getUserType() already
+     * follows the key. On cars without it that message never arrives and the last-used profile stays, as on the stock
+     * screen. getPreBootUserType() is not used: it can't tell "no key support" from Guest (it reads 0 either way).
      */
     public static int keyProfile(Context c) {
-        if (onCar(c)) {
-            try {
-                int k = ((Number) call(c, "getPreBootUserType", new Class<?>[0])).intValue();
-                if (k >= 0 && k < COUNT) return k;
-            } catch (Throwable ignored) { }
-        }
         return active(c);
     }
 
@@ -98,9 +98,12 @@ public final class Profiles {
         new Thread(new Runnable() { @Override public void run() {
             StringBuilder b = new StringBuilder("diag:");
             b.append(" onCar=").append(onCar(c)).append(" active=").append(active(c)).append(" key=").append(keyProfile(c));
+            b.append(" preBoot=");
+            try { b.append(call(c, "getPreBootUserType", new Class<?>[0])); } catch (Throwable t) { b.append('?'); }
             for (int i = 1; i < COUNT; i++) {
-                try { b.append(" pwd").append(i).append('=').append(call(c, "isNeededFrsOrPassword", new Class<?>[]{int.class}, i)); }
-                catch (Throwable t) { b.append(" pwd").append(i).append("=?").append(t.getClass().getSimpleName()); }
+                b.append(" pwd").append(i).append('=');
+                try { b.append(call(c, "isNeededFrsOrPassword", new Class<?>[]{int.class}, i)); }
+                catch (Throwable t) { b.append('?').append(t.getClass().getSimpleName()); }
             }
             try {
                 Class<?> pk = Class.forName("com.hkmc.pgs.PgsManager");

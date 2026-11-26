@@ -106,7 +106,7 @@ final class CardView extends View {
     float badgeR() { return 15f * dp; }
 
     boolean inBadge(float x, float y) {
-        if (!editMode) return false;
+        if (!editMode || entry.hiddenApp) return false;
         float dx = x - badgeCx(), dy = y - badgeCy();
         return dx * dx + dy * dy <= badgeR() * badgeR() * 2.25f;
     }
@@ -115,7 +115,7 @@ final class CardView extends View {
     float ungroupCx() { return getWidth() - 26f * dp; }
 
     boolean inUngroup(float x, float y) {
-        if (!editMode || entry.stackBack == null) return false;
+        if (!editMode || entry.hiddenApp || entry.stackBack == null) return false;
         float dx = x - ungroupCx(), dy = y - badgeCy();
         return dx * dx + dy * dy <= badgeR() * badgeR() * 2.25f;
     }
@@ -125,6 +125,7 @@ final class CardView extends View {
     void setStackTarget(boolean on) { if (on != stackTarget) { stackTarget = on; invalidate(); } }
 
     void setEditMode(boolean on) {
+        if (editMode == on && (on || !lifted)) return; // nothing to redraw (called for every card at once)
         editMode = on;
         if (!on) lifted = false;
         invalidate();
@@ -134,6 +135,7 @@ final class CardView extends View {
 
     /** The dragged card stays lit while its siblings dim, like ccNC's edit mode. */
     void setLifted(boolean on) {
+        if (lifted == on) return;
         lifted = on;
         invalidate();
     }
@@ -198,7 +200,9 @@ final class CardView extends View {
 
         float iconSize = Math.min(w * 0.44f, h * 0.26f);
         float iconCy = h * 0.30f;
-        if (entry.art != null) {
+        if (entry.hiddenApp) {
+            // A hidden app: the crossed-out eye takes the icon's place (drawHiddenVeil).
+        } else if (entry.art != null) {
             // ccNC artwork: 90 px icons drawn on a 1920x720 screen like ours, so ~1:1 scale.
             float s = iconSize * 0.95f;
             artDst.set(w / 2f - s / 2f, iconCy - s / 2f, w / 2f + s / 2f, iconCy + s / 2f);
@@ -263,6 +267,7 @@ final class CardView extends View {
         }
 
         c.restore();
+        if (entry.hiddenApp) { drawHiddenVeil(c, w, getHeight(), r, t); return; }
         if (editMode) {
             // ccNC-style remove badge: dark disc, pale ring, white minus.
             float bx = badgeCx(), by = badgeCy(), br = badgeR();
@@ -280,6 +285,35 @@ final class CardView extends View {
             c.drawRect(bx - m, by - th / 2f, bx + m, by + th / 2f, stroke);
         }
         drawStackTarget(c);
+    }
+
+    /** A hidden app's card: a translucent veil and a crossed-out eye in the middle; tapping it shows the app again. */
+    private void drawHiddenVeil(Canvas c, float w, float h, float r, Theme t) {
+        Paint veil = new Paint(Paint.ANTI_ALIAS_FLAG);
+        veil.setColor(t.light ? 0x8CFFFFFF : 0x99000000);
+        c.drawRoundRect(new RectF(0, 0, w, h), r, r, veil);
+        float cx = w / 2f, cy = h * 0.42f, ew = Math.min(w * 0.30f, 58f * dp), eh = ew * 0.52f;
+        Paint eye = new Paint(Paint.ANTI_ALIAS_FLAG);
+        eye.setStyle(Paint.Style.STROKE);
+        eye.setStrokeWidth(2.6f * dp);
+        eye.setStrokeCap(Paint.Cap.ROUND);
+        eye.setColor(t.light ? 0xD9000000 : 0xF2FFFFFF);
+        // Eye outline: two arcs meeting at the corners, then the iris.
+        Path p = new Path();
+        p.moveTo(cx - ew, cy);
+        p.quadTo(cx, cy - eh * 2f, cx + ew, cy);
+        p.quadTo(cx, cy + eh * 2f, cx - ew, cy);
+        c.drawPath(p, eye);
+        c.drawCircle(cx, cy, eh * 0.55f, eye);
+        // The slash through it.
+        float sx = ew * 0.95f, sy = eh * 1.55f;
+        c.drawLine(cx - sx, cy - sy, cx + sx, cy + sy, eye);
+        TextPaint hint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        hint.setTextSize(Math.min(15f * dp, w * 0.085f));
+        hint.setColor(eye.getColor());
+        hint.setTypeface(title.getTypeface());
+        String s = "Tap to Show";
+        c.drawText(s, cx - hint.measureText(s) / 2f, h * 0.93f, hint);
     }
 
     // ---- stacks: two half-height cards sharing one slot ----

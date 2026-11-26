@@ -43,6 +43,8 @@ final class GeneralStock {
 
     static synchronized GeneralStock get(Context c) {
         if (inst != null) return inst;
+        dev.ccnc.settings.api.Demo.init(c);
+        if (dev.ccnc.settings.api.Demo.on()) { inst = new GeneralStock(null); return inst; } // emulator demo: answers come from Demo
         Context sc = null;
         try {
             sc = c.createPackageContext(PKG, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
@@ -76,7 +78,7 @@ final class GeneralStock {
         return inst;
     }
 
-    boolean available() { return cl != null; }
+    boolean available() { return cl != null || dev.ccnc.settings.api.Demo.on(); }
 
     private Object call(String cls, String name, Class<?>[] types, Object... args) throws Throwable {
         Method m = cl.loadClass(cls).getDeclaredMethod(name, types);
@@ -88,6 +90,7 @@ final class GeneralStock {
     boolean bool(String cls, String name) { return boolOr(cls, name, false); }
 
     boolean boolOr(String cls, String name, boolean def) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.check(name);
         if (cl == null) return def;
         try { return (Boolean) call(cls, name, new Class<?>[0]); }
         catch (Throwable t) { Log.w(TAG, "stock check " + cls + "." + name, t); return def; }
@@ -99,11 +102,13 @@ final class GeneralStock {
 
     // ---- Set the Time Automatically (gps_auto_time) ----
     boolean gpsAuto(Context c) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.getBool("gen.gps", true);
         try { if (cl != null) return clockRead("m"); } catch (Throwable t) { Log.w(TAG, "gps auto read", t); }
         try { return Settings.System.getInt(c.getContentResolver(), "gps_auto_time") == 1; } catch (Throwable t) { return false; }
     }
 
     void setGpsAuto(Context c, boolean on) {
+        if (dev.ccnc.settings.api.Demo.on()) { dev.ccnc.settings.api.Demo.put("gen.gps", on); return; }
         if (cl == null) return;
         try { call(PKG + ".ClockSettingPref", "u", new Class<?>[] { boolean.class }, on); }
         catch (Throwable t) { Log.w(TAG, "gps auto write", t); }
@@ -117,11 +122,13 @@ final class GeneralStock {
 
     // ---- Time Format (time_12_24) ----
     boolean is24(Context c) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.getBool("gen.24h", false);
         try { if (cl != null) return clockRead("o"); } catch (Throwable t) { Log.w(TAG, "24h read", t); }
         return "24".equals(GeneralSection.sysString(c, "time_12_24"));
     }
 
     void set24(Context c, boolean h24) {
+        if (dev.ccnc.settings.api.Demo.on()) { dev.ccnc.settings.api.Demo.put("gen.24h", h24); return; }
         String v = h24 ? "24" : "12";
         boolean done = false;
         if (cl != null) {
@@ -144,11 +151,13 @@ final class GeneralStock {
 
     // ---- Daylight Saving Time (summer_time) ----
     boolean dst(Context c) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.getBool("gen.dst", false);
         try { if (cl != null) return clockRead("n"); } catch (Throwable t) { Log.w(TAG, "dst read", t); }
         try { return Settings.System.getInt(c.getContentResolver(), "summer_time") > 0; } catch (Throwable t) { return false; }
     }
 
     void setDst(Context c, boolean on) {
+        if (dev.ccnc.settings.api.Demo.on()) { dev.ccnc.settings.api.Demo.put("gen.dst", on); return; }
         if (cl == null) return;
         int v = on ? 1 : 0;
         try {
@@ -167,6 +176,7 @@ final class GeneralStock {
 
     /** Stock string by resource name (stable across firmware), in the current locale; fallback when unreadable. */
     String str(String name, String fallback) {
+        if (dev.ccnc.settings.api.Demo.on()) return fallback;
         try {
             int id = sc.getResources().getIdentifier(name, "string", PKG);
             if (id != 0) return sc.getResources().getString(id);
@@ -176,6 +186,7 @@ final class GeneralStock {
 
     /** Static int getter of a stock helper (profile-aware Settings read), -1 when unreadable. */
     int intCall(String cls, String name) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.getInt("gen.media_noti", 1);
         if (cl == null) return -1;
         try { return (Integer) call(cls, name, new Class<?>[] { Context.class }, sc); }
         catch (Throwable t) { Log.w(TAG, "stock read " + cls + "." + name, t); return -1; }
@@ -183,8 +194,25 @@ final class GeneralStock {
 
     /** Static (Context,int) setter of a stock helper (profile key + active key). */
     void intSet(String cls, String name, int v) {
+        if (dev.ccnc.settings.api.Demo.on()) { dev.ccnc.settings.api.Demo.put("gen.media_noti", v); return; }
         if (cl == null) return;
         try { call(cls, name, new Class<?>[] { Context.class, int.class }, sc, v); }
+        catch (Throwable t) { Log.w(TAG, "stock write " + cls + "." + name, t); }
+    }
+
+    /** Static no-arg int getter of a stock helper (util.i.get*Unit()), -1 when unreadable. */
+    int intCall0(String cls, String name) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.getInt("unit." + name.substring(3), -1);
+        if (cl == null) return -1;
+        try { return (Integer) call(cls, name, new Class<?>[0]); }
+        catch (Throwable t) { Log.w(TAG, "stock read " + cls + "." + name + ": " + t); return -1; }
+    }
+
+    /** Static (int) setter of a stock helper (util.i.set*Unit(int): USMManager write + the stock backup). */
+    void intSet1(String cls, String name, int v) {
+        if (dev.ccnc.settings.api.Demo.on()) { dev.ccnc.settings.api.Demo.put("unit." + name.substring(3), v); return; }
+        if (cl == null) return;
+        try { call(cls, name, new Class<?>[] { int.class }, v); Log.i(TAG, cls + "." + name + "(" + v + ")"); }
         catch (Throwable t) { Log.w(TAG, "stock write " + cls + "." + name, t); }
     }
 

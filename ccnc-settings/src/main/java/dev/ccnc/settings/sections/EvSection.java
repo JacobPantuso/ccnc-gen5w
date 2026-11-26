@@ -7,17 +7,15 @@ import java.lang.reflect.Method;
 
 import dev.ccnc.settings.api.Category;
 import dev.ccnc.settings.api.Fn;
-import dev.ccnc.settings.api.Host;
 import dev.ccnc.settings.api.Page;
 import dev.ccnc.settings.api.Section;
 
 /**
  * EV (stock classId com.android.settings.ev): the menus of the stock EV3 EvSettingActivity as it shows them on this
  * car (Max. % Charge, AC Charging Current, Battery Conditioning Mode, Utility Mode, Smart Regeneration System), with
- * the stock EV3 app's own wording (its resources, read at runtime). Read-only: the charge limits come from
- * HEVManager.getHEVStatus(TARGET_SOC_QUICK / TARGET_SOC_SLOW) (automotive.jar); every change goes through the stock
- * EV Settings screen (no EV writes from here). The other menus open the stock screen directly (their values are
- * not decoded here).
+ * the stock EV3 app's own wording, built from its settings table and changed through its smart-control receiver
+ * (buildFromStockTable). When the table can't be read the charge limits are shown read only from
+ * HEVManager.getHEVStatus(TARGET_SOC_QUICK / TARGET_SOC_SLOW) (automotive.jar). No stock screen is opened.
  */
 public final class EvSection extends Section {
     @Override public String classId() { return "com.android.settings.ev"; }
@@ -30,6 +28,8 @@ public final class EvSection extends Section {
 
     @Override public void build(Category c) {
         if (buildFromStockTable(c)) return;
+        // The EV3 settings table did not answer (EV3 not running yet / not an EV): the charge limits read only, from
+        // HEVManager. No stock screen is opened; the full menus appear once the table is readable.
         final Context x = c.context();
         Context ec;
         try { ec = x.createPackageContext(EV3, 0); } catch (Throwable t) { Log.w(TAG, "ev: no EV3 app"); return; }
@@ -37,17 +37,13 @@ public final class EvSection extends Section {
         String max = str(e, "battery_capacity_charging_completeion");
         final String dc = str(e, "eco_30_evsettings_dccharger"), ac = str(e, "eco_30_evsettings_accharger");
         if (max == null || dc == null || ac == null) return;
-        final Fn.Act stock = new Fn.Act() { @Override public void run(Host h) { h.openStock(); } };
         c.tab(max, new Fn.Build() {
             @Override public void build(Page p) {
-                p.value(dc, new Fn.Str() { @Override public String get() { return pct(x, TARGET_SOC_QUICK); } }, stock);
-                p.value(ac, new Fn.Str() { @Override public String get() { return pct(x, TARGET_SOC_SLOW); } }, stock);
+                p.info(dc, pct(x, TARGET_SOC_QUICK));
+                p.info(ac, pct(x, TARGET_SOC_SLOW));
+                p.note("EV settings are not readable right now. Open this page again in a moment.");
             }
         });
-        for (String n : new String[]{"charging_current_tab_new", "battery_conditioning_mode", "utility_mode", "smart_regen_system_tab"}) {
-            String t = str(e, n);
-            if (t != null) c.action(t, stock);
-        }
     }
 
     /**

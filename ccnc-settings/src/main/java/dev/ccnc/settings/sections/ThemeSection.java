@@ -1,11 +1,9 @@
 package dev.ccnc.settings.sections;
 
 import android.content.Context;
-import android.content.Intent;
 
 import dev.ccnc.settings.api.Category;
 import dev.ccnc.settings.api.Fn;
-import dev.ccnc.settings.api.Host;
 import dev.ccnc.settings.api.Page;
 import dev.ccnc.settings.api.Sys;
 import dev.ccnc.settings.api.Section;
@@ -13,17 +11,20 @@ import dev.ccnc.settings.api.Section;
 /**
  * Theme / Screen Layout (stock classId com.android.ThemeSettings, app com.android.themesettings).
  *
- * Menus and order are the stock MainActivity.createTab() ones, each gated by the stock app's own static check
- * (obfuscated com.android.themesettings.util.i / ClusterUtils, called through the stock class loader):
-  *   i.da()                          Digital Picture Frame     tab "DigitalFrame"
- *   i.dm()                          Graphic Themes            current value (day_theme_<user>) + stock tab "DayTheme"
- *   ClusterUtils.N(ctx) && i.dc()   Cluster Theme Selection   tab "ClusterTheme"
- *   (always)                        Screen Saver              tab "Screensaver"
- *   i.dz()                          Split Screen              tab "SplitScreenSetting"
- * (names from the car's own build, /tmp/ugset; they change between firmwares.) Each entry opens the stock screen on that tab (extra SAVED_CURRENT_TAB): the stock value encodings (analog_clock_type,
- * day_theme, split-screen order, cluster theme via the vehicle) could not be recovered reliably from the odex, so the
- * values are read/written only by the stock screens.
- * Home screen icons/widgets (com.hkmc.system.app.homesetting) are opened from the stock Display category, not here.
+ * ccNC's own tabs first (ccNC Theme, Theme Store, Accent Colour), then the stock menus in the stock
+ * MainActivity.createTab() order, each gated by the stock app's own static check (obfuscated
+ * com.android.themesettings.util.i / ClusterUtils, called through the stock class loader):
+ *   i.da()                          Digital Picture Frame     NOT PORTED (note): pictures come from the Bluelink phone app
+ *                                                             through the stock CCSImageDownloadService
+ *   i.dm()                          Graphic Themes            White / Black
+ *   ClusterUtils.N(ctx) && i.dc()   Cluster Theme Selection   Theme A..., Link To Drive Mode
+ *   (always)                        Screen Saver              None / Digital Clock / Analog Clock / Digital Picture Frame
+ *   i.dz()                          Split Screen              no entry: ccNC has no split screen
+ * Values are read and changed through the stock ThemeSettingService's smart-control bridge ({@link Scontrol}, type 15;
+ * key ids = the stock app's own integer resources theme_tab_* / day_theme_mode_* / disp_scr_saver_* / cluster_*), so
+ * applying a theme runs the stock code (ThemeSettingService, VideoSetupManager.setScreenSaver,
+ * USMManager.setCluster_ThemeStatus...). The scheduled / sunrise-sunset graphic theme modes are not smart-control
+ * options: when one is active it is shown, and White / Black can still be chosen. Not tested on car.
  */
 public final class ThemeSection extends Section {
     private static final String PKG = "com.android.themesettings";
@@ -107,41 +108,72 @@ public final class ThemeSection extends Section {
             ((dev.ccnc.settings.MainActivity) c).themeChanged();
     }
 
+    private static final int K_DAY = 12050, K_SAVER = 12052, K_CLUSTER = 12056, K_CLUSTER_LINK = 35010;
+    private static final int[] CLUSTER = {25011, 25012, 25013, 25014, 25015, 25016, 25017, 25018, 25019, 25020, 25021};
+    private static final String[] CLUSTER_NAMES = {"cluster_theme_a", "cluster_theme_b", "cluster_theme_c", "cluster_theme_d",
+            "cluster_theme_e", "cluster_theme_f", "cluster_classic_a", "cluster_classic_b", "cluster_classic_c", "cluster_cube", "cluster_dynamic"};
+    private static final String[] CLUSTER_FALLBACK = {"Theme a", "Theme B", "Theme C", "Theme D", "Theme E", "Theme F",
+            "Classic a", "Classic B", "Classic C", "Cube", "Dynamic"};
+
     @Override public void build(Category c) {
         ccncTabs(c);
-        // Stock gating members as named in THIS car's ThemeSettings build (obfuscated; logged when missing).
-        final ButtonSectionStock s = ButtonSectionStock.open(c.context(), PKG, null, null);
-        if (s == null) return; // no stock app: the card opens the stock screen (framework)
         final Context x = c.context();
-        if (s.is(I, "da")) tab(c, c.word(4001, s.str("digital_frame")), "DigitalFrame");
+        final dev.ccnc.settings.api.Scontrol sc = dev.ccnc.settings.api.Scontrol.of(x, PKG, 15);
+        sc.prefetch(K_DAY, K_SAVER, K_CLUSTER, K_CLUSTER_LINK);
+        // Stock gating members as named in THIS car's ThemeSettings build (obfuscated; logged when missing).
+        final ButtonSectionStock s = ButtonSectionStock.open(x, PKG, null, null);
+        if (s == null) return; // no stock app (emulator): only the ccNC tabs
+        if (!sc.anyAnswer()) sc.await(1200);
         if (s.is(I, "dm")) {
             final String title = c.word(4052, s.str("day_theme"));
-            // stock DayThemeActivity$MODE order: THEME_WHITE, THEME_BLACK, SCHEDULED_BY_USER, THEME_SUNRISE_SUNSET
-            final String[] labels = {s.str("white_theme"), s.str("black_theme"), s.str("schedule_theme"), s.str("sunrise_sunset_theme")};
             if (title != null) c.tab(title, new Fn.Build() {
                 @Override public void build(Page p) {
-                    // Applying a theme runs inside the stock ThemeSettingService: value shown here, chosen in the stock screen.
-                    p.value(title, new Fn.Str() {
-                        @Override public String get() {
-                            int v = Sys.getInt(x, "day_theme" + ButtonSectionStock.userSuffix(x), -1);
-                            return v >= 0 && v < labels.length && labels[v] != null ? labels[v] : "";
-                        }
-                    }, new Fn.Act() {
-                        @Override public void run(Host h) { h.start(component(PKG, ".MainActivity").putExtra("SAVED_CURRENT_TAB", "DayTheme")); }
-                    });
+                    sc.attach(p.host());
+                    // stock DayThemeActivity$MODE order: THEME_WHITE 0, THEME_BLACK 1, SCHEDULED_BY_USER 2, THEME_SUNRISE_SUNSET 3
+                    int v = Sys.getInt(x, "day_theme" + ButtonSectionStock.userSuffix(x), -1);
+                    if (v == 2) p.info(title, or(s.str("schedule_theme"), "Scheduled"));
+                    else if (v == 3) p.info(title, or(s.str("sunrise_sunset_theme"), "Sunrise / Sunset"));
+                    if (!sc.radios(p, K_DAY, new int[] {25101, 25102},
+                            new String[] {or(s.str("white_theme"), "White"), or(s.str("black_theme"), "Black")}))
+                        p.note("Not available on this unit.");
                 }
             });
         }
-        if (s.isCtx(PKG + ".util.ClusterUtils", "N") && s.is(I, "dc"))
-            tab(c, c.word(4034, s.str("cluster_theme")), "ClusterTheme");
-        tab(c, c.word(4004, s.str("screen_saver")), "Screensaver");
+        if (s.isCtx(PKG + ".util.ClusterUtils", "N") && s.is(I, "dc")) {
+            String t = c.word(4034, s.str("cluster_theme"));
+            if (t != null) c.tab(t, new Fn.Build() {
+                @Override public void build(Page p) {
+                    sc.attach(p.host());
+                    // USMManager.getCluster_ThemeCount(): how many of Theme A.. this cluster has (0 / unreadable: the first three).
+                    int n = dev.ccnc.settings.api.Car.getInt(dev.ccnc.settings.api.Car.manager(x, "com.hkmc.usm.USMManager"), "getCluster_ThemeCount", 0);
+                    int cur = sc.value(K_CLUSTER);
+                    java.util.List<Integer> keys = new java.util.ArrayList<Integer>();
+                    java.util.List<String> names = new java.util.ArrayList<String>();
+                    for (int i = 0; i < CLUSTER.length; i++) {
+                        boolean inCount = i < (n >= 1 && n <= 6 ? n : 3);
+                        if (!inCount && CLUSTER[i] != cur) continue; // other themes only when the car reports one as current
+                        keys.add(CLUSTER[i]); names.add(or(s.str(CLUSTER_NAMES[i]), CLUSTER_FALLBACK[i]));
+                    }
+                    int[] k = new int[keys.size()];
+                    for (int i = 0; i < k.length; i++) k[i] = keys.get(i);
+                    boolean any = sc.check(p, K_CLUSTER_LINK, or(s.str("cluster_theme_link_to_drivemode"), "Link to Drive Mode"));
+                    any |= sc.radios(p, K_CLUSTER, k, names.toArray(new String[0]));
+                    if (!any) p.note("Not available on this unit.");
+                }
+            });
+        }
+        String ss = c.word(4004, s.str("screen_saver"));
+        if (ss != null) c.tab(ss, new Fn.Build() {
+            @Override public void build(Page p) {
+                sc.attach(p.host());
+                if (!sc.radios(p, K_SAVER, new int[] {21061, 21062, 21063, 21060},
+                        new String[] {or(s.str("screen_saver_setting_none"), "None"), or(s.str("screen_saver_setting_digital"), "Digital Clock"),
+                                or(s.str("screen_saver_setting_analog"), "Analog Clock"), or(s.str("screen_saver_setting_image"), "Digital Picture Frame")}))
+                    p.note("Not available on this unit.");
+            }
+        });
         // No Split Screen entry: ccNC has no split screen, and ccNC Home keeps the Gen5W right screen off.
     }
 
-    private static void tab(Category c, String title, String tabId) {
-        if (title == null) return;
-        c.tab(title, component(PKG, ".MainActivity").putExtra("SAVED_CURRENT_TAB", tabId));
-    }
-
-    @Override public Intent stockIntent(Context c) { return component(PKG, ".MainActivity"); }
+    private static String or(String a, String b) { return a != null && a.length() > 0 ? a : b; }
 }

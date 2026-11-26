@@ -18,8 +18,8 @@ import dev.ccnc.settings.api.Section;
  * Utils.checkCarModel()), called through the stock class loader, and every read/write goes through the stock
  * VoiceXxxSetting$Interface.get/set(user, ctx[, value]) for the current profile (Wrapper$UserProfileManager.getUserType()),
  * which also sends the stock change broadcasts. Link Vehicle Features / Rear Seat follow the stock
- * Utils.checkMoodLampVROptions() / checkRearVROptions(). Only Use Network (SGP) and Kakao Friends (Korea) would be left
- * to the stock screen (which is not exported, so it cannot be opened from here anyway).
+ * Utils.checkMoodLampVROptions() / checkRearVROptions(). Use Network (Singapore), Kakao Friends (Korea) and the India
+ * prompt list are not ported (other regions' builds). No stock screen is opened.
  */
 public final class VoiceRecognitionSection extends Section {
     @Override public String classId() { return "com.android.settings.voice"; }
@@ -34,7 +34,7 @@ public final class VoiceRecognitionSection extends Section {
     @Override public void build(Category c) {
         final Context x = c.context();
         final Context sc = stock(x);
-        if (sc == null) return;  // stock Setup app not readable: the card opens the stock screen
+        if (sc == null) return;  // stock Setup app not readable (emulator): "Not available on this unit."
 
         // Audible Prompts (VoiceGuidanceSetting): Beginner = 0, Normal = 1, Expert = 2 (stock list order and values).
         // India (other than ky1) builds a different list in the stock screen: left to the stock entry there.
@@ -93,17 +93,21 @@ public final class VoiceRecognitionSection extends Section {
 
         // Use Network (Utils.isSGP()) and Kakao Friends (Utils.checkServerVROptions(), Korea) are not built here:
         // only then is something left for the stock screen.
+        // (Singapore / Korea / India builds only; none of them applies to this car. They are not ported.)
         leftover = bool(sc, U, "isSGP") || bool(sc, U, "checkServerVROptions") || (india && !ky1);
         Log.i(TAG, "voice: india=" + india + " ky1=" + ky1 + " options=" + bool(sc, V + "VoiceOptionsSetting", "isShowingVoiceOptions") + " moodLamp=" + bool(sc, U, "checkMoodLampVROptions") + " rear=" + bool(sc, U, "checkRearVROptions") + " leftover=" + leftover);
     }
 
     private static boolean leftover = true;
 
-    /** Nothing left in the stock screen unless this car has Use Network / Kakao Friends / the India prompt list. */
-    @Override public boolean complete() { return !leftover; }
 
     /** USMManager (automotive.jar) getter (arg < 0) or setter, as VoiceVehicleControl calls it. */
     static int usm(Context x, String m, int arg) {
+        if (dev.ccnc.settings.api.Demo.on()) { // emulator demo
+            if (arg < 0) return dev.ccnc.settings.api.Demo.getInt("USMManager#" + m.substring(3), -1);
+            dev.ccnc.settings.api.Demo.put("USMManager#" + m.substring(3), arg);
+            return arg;
+        }
         try {
             Class<?> c = Class.forName("com.hkmc.usm.USMManager");
             Object u = c.getConstructor(Context.class).newInstance(x);
@@ -120,6 +124,8 @@ public final class VoiceRecognitionSection extends Section {
 
     /** The stock Setup app's package context with its SettingsApp singleton given a context, or null. */
     static Context stock(Context c) {
+        dev.ccnc.settings.api.Demo.init(c);
+        if (dev.ccnc.settings.api.Demo.on()) return c; // emulator demo: call() / str() answer from Demo
         try {
             Context sc = c.createPackageContext(STOCK, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
             Class<?> app = sc.getClassLoader().loadClass("com.android.settings.SettingsApp");
@@ -140,6 +146,12 @@ public final class VoiceRecognitionSection extends Section {
     }
 
     static Object call(Context sc, String cls, String m, Class<?>[] types, Object... args) {
+        if (dev.ccnc.settings.api.Demo.on()) { // emulator demo: static checks by method name; Interface get*/set* from the in-memory car
+            if (!cls.endsWith("$Interface")) return Boolean.valueOf(dev.ccnc.settings.api.Demo.check(m));
+            String key = "voice." + cls.substring(cls.lastIndexOf('.') + 1) + "." + m.substring(3);
+            if (m.startsWith("set")) { dev.ccnc.settings.api.Demo.put(key, args[args.length - 1]); return null; }
+            return Integer.valueOf(dev.ccnc.settings.api.Demo.getInt(key, 0));
+        }
         try {
             Method mm = sc.getClassLoader().loadClass(cls).getMethod(m, types);
             return mm.invoke(null, args);
@@ -154,6 +166,7 @@ public final class VoiceRecognitionSection extends Section {
     }
 
     static String str(Context sc, String name) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.str(name);
         try {
             int id = sc.getResources().getIdentifier(name, "string", STOCK);
             return id == 0 ? null : sc.getResources().getString(id);
@@ -162,6 +175,7 @@ public final class VoiceRecognitionSection extends Section {
 
     /** Current profile as the stock screens read it: Wrapper$UserProfileManager.getInstance(ctx).getUserType(). */
     static int user(Context sc, Context x) {
+        if (dev.ccnc.settings.api.Demo.on()) return 0;
         try {
             Class<?> w = sc.getClassLoader().loadClass("com.android.settings.util.Wrapper$UserProfileManager");
             Object m = w.getMethod("getInstance", Context.class).invoke(null, x);

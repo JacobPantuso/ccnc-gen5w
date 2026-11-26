@@ -11,7 +11,7 @@ Tap the clock in any ccNC top bar **7 times** within 3 seconds. A tap outside cl
 | **Status** | Every ccNC app and its version, the theme, brand, each system change, NEMESIS and HMG-API, uptime, memory and storage. **Open Stock Home** opens the Gen5W's own home screen |
 | **CPU Usage** | Total CPU, load and memory, and the busiest processes, refreshed every 2 seconds |
 | **Compatibility** | Firmware, brand detection, screen, which system changes fit this firmware, car services and the stock apps ccNC uses |
-| **Run Checks** | Opens each ccNC app briefly and saves a report and screenshots to `ccNC reports/` on a USB stick. Needs a stick: greyed out without one |
+| **Export Logs** | Saves a summary of the car and ccNC plus the head unit's recent logs to `ccNC logs/<date-time>/` on a USB stick, for bug reports. Personal information is removed first: paired phones' names and addresses, profile names, Wi-Fi network, phone numbers, email addresses, locations, VIN, device IDs and phone book, message and call lines (`SANITIZED.txt` lists what was removed). Needs a stick (greyed out without one) and NEMESIS root. Look the files over before sharing them |
 | **Reboot** | Restarts the head unit, after a confirmation |
 
 ## System change states

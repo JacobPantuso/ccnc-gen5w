@@ -46,8 +46,8 @@ import java.util.Map;
  *   CPU usage      total and per-process CPU (from /proc), load, memory; refreshed every 2 s
  *   Compatibility  head unit, which system patches fit this firmware (a LivePatch step that installs is supported),
  *                  detected brand, car services and stock apps
- *   Run checks     the on-car check (/data/ccnc/verify.sh, report to the USB stick) through NEMESIS root;
- *                  without root, the checks an app can do itself
+ *   Export Logs    a summary of this car and ccNC plus the system logs, to "ccNC logs/<time>/" on the USB stick
+ *                  (NEMESIS root reads and writes, ccNC removes personal information first, LogScrub); without root, a self-check
  *   Reboot         asks first (a ccNC confirm popup), then setprop sys.powerctl reboot through NEMESIS root
  * Root goes through the NEMESIS CLI: /data/ccnc/nemesis-d (non-SUID copy: the NEMESIS daemon, full root), else
  * /system/xbin/nemesis (SUID: a limited root when an app runs it). Both are tried; the popup says which worked.
@@ -145,7 +145,7 @@ public final class DevMenu {
             // Left: menu.
             LinearLayout menu = new LinearLayout(a);
             menu.setOrientation(LinearLayout.VERTICAL);
-            String[] names = {"Status", "CPU Usage", "Compatibility", "Run Checks", "Reboot"};
+            String[] names = {"Status", "CPU Usage", "Compatibility", "Export Logs", "Reboot"};
             tabs = new TextView[names.length];
             for (int i = 0; i < names.length; i++) {
                 final int idx = i;
@@ -428,41 +428,52 @@ public final class DevMenu {
 
         String has(boolean b) { return b ? "available" : "not found"; }
 
-        // ---- Run checks ----
+        // ---- Export Logs ----
 
         void checks() {
-            heading("On-Car Check");
-            note("Opens every ccNC app for a few seconds (about a minute; the screen changes by itself), then saves "
-                    + "REPORT.txt, ccnc.log and screenshots to \"ccNC reports/run-N/\" on the USB stick. Park first.");
+            heading("Export Logs");
+            note("Saves a summary of this car and ccNC, and the head unit's recent logs, to \"ccNC logs/\" on the USB "
+                    + "stick. Send that folder with a bug report. Phone names, Bluetooth addresses, phone numbers, locations, "
+                    + "the VIN and similar details are removed first (SANITIZED.txt lists what). Look the files over before "
+                    + "sharing them.");
             final String usb = usbStick();
             if (usb == null) {
-                note("Insert a USB stick to run the on-car check. The report is saved to it.");
-                TextView b = button("Run Checks", new View.OnClickListener() { @Override public void onClick(View v) { select(3); } });
+                note("Insert a USB stick to export logs.");
+                TextView b = button("Export Logs", new View.OnClickListener() { @Override public void onClick(View v) { select(3); } });
                 b.setAlpha(0.4f);
             } else {
                 note("USB stick: " + usb);
-                button("Run Checks", new View.OnClickListener() { @Override public void onClick(View v) {
+                button("Export Logs", new View.OnClickListener() { @Override public void onClick(View v) {
                     if (usbStick() == null) { select(3); return; }   // pulled out since
-                    runChecks();
+                    exportLogs();
                 } });
             }
             heading("Without Root");
             button("Quick Self-Check", new View.OnClickListener() { @Override public void onClick(View v) { selfCheck(); } });
         }
 
-        void runChecks() {
+        void exportLogs() {
             content.removeAllViews();
-            heading("Running the Check…");
-            final TextView out = note("Starting through NEMESIS root. The screen will switch between apps.");
-            final String[] r = new String[1];
+            heading("Exporting Logs…");
+            note("Collecting the logs, removing personal information, then writing them to the USB stick. This can take "
+                    + "up to a minute.");
+            final String[] r = new String[2];
             bg(3, new Runnable() { @Override public void run() {
-                if (!new File(DIR + "/verify.sh").exists()) { r[0] = "The check script isn't installed (" + DIR + "/verify.sh). Reinstall ccNC for Gen5W."; return; }
-                r[0] = root("sh " + DIR + "/verify.sh", 240000);
+                r[1] = summary(a);
+                r[0] = writeLogs(a, r[1]);
             } }, new Runnable() { @Override public void run() {
                 content.removeAllViews();
-                heading("Check Finished");
-                note(r[0]);
-                if (r[0] != null && r[0].startsWith("No NEMESIS root")) selfCheck();
+                boolean ok = r[0] != null && r[0].startsWith("Ran through");
+                heading(ok ? "Logs Exported" : "Logs Not Exported");
+                if (ok) {
+                    String dir = null;
+                    for (String l : r[0].split("\n")) if (l.startsWith("DIR ")) dir = l.substring(4);
+                    note("Saved to " + (dir == null ? "the USB stick" : dir) + ". Wait a moment before removing the stick.");
+                } else {
+                    note("Writing to the USB stick needs NEMESIS root:\n" + r[0]);
+                    heading("Summary");
+                    note(r[1]);
+                }
             } });
         }
 
@@ -547,6 +558,145 @@ public final class DevMenu {
                 } }, 5000);
             } }, "ccncReboot").start();
         }
+    }
+
+    // ---- Export Logs ----
+
+    /** What the app itself can tell about this car and ccNC, as text (summary.txt). */
+    static String summary(Context c) {
+        StringBuilder b = new StringBuilder();
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US);
+        b.append("ccNC log export ").append(f.format(new java.util.Date())).append('\n');
+        b.append("\n[Head unit]\n");
+        for (String k : new String[]{"ro.build.product2", "ro.build.display.id", "ro.build.version.release", "ro.product.model",
+                "ro.product.device", "persist.sys.climate.rhd", "persist.sys.ccnc.rhd", "persist.sys.language", "persist.sys.country"}) {
+            b.append(k).append(" = ").append(prop(k)).append('\n');
+        }
+        b.append("brand = ").append(Fonts.brand(c)).append(" (").append(brandSource()).append(")\n");
+        b.append("right-hand drive = ").append(Drive.rhd(c)).append('\n');
+        android.util.DisplayMetrics dm = c.getResources().getDisplayMetrics();
+        b.append("screen = ").append(dm.widthPixels).append('x').append(dm.heightPixels).append(" @ ").append(dm.densityDpi).append(" dpi\n");
+        b.append("uptime = ").append(dur(SystemClock.elapsedRealtime())).append('\n');
+        long[] m = meminfo();
+        if (m != null) b.append("memory = ").append(m[1] / 1024).append(" MB free of ").append(m[0] / 1024).append(" MB\n");
+        b.append("theme = ").append(themeId()).append('\n');
+        b.append("\n[ccNC and stock packages]\n");
+        PackageManager pm = c.getPackageManager();
+        List<String> lines = new ArrayList<String>();
+        for (PackageInfo p : pm.getInstalledPackages(0)) {
+            String n = p.packageName;
+            if (n.startsWith("dev.ccnc.") || n.startsWith("com.nemesis") || n.contains("hmgapi") || n.equals("com.daudio.app.dipo")
+                    || n.equals("com.google.android.projection.sink") || n.equals("com.android.launcher3")) {
+                lines.add(n + " " + p.versionName + " (" + p.versionCode + ")");
+            }
+        }
+        Collections.sort(lines);
+        for (String l : lines) b.append(l).append('\n');
+        b.append("\n[System patches]\n");
+        String mounts = readAll("/proc/mounts");
+        for (int i = 0; i < PATCHES.length; i++) b.append(PATCHES[i][1]).append(" = ").append(patchState(i, mounts)[0]).append('\n');
+        b.append("\n[Car services]\n");
+        b.append("DATC = ").append(service("DATC_SERVICE", "com.hkmc.micom.datc")).append('\n');
+        b.append("USM = ").append(service("USM_SERVICE", "com.hkmc.micom.usm")).append('\n');
+        b.append("HEVManager = ").append(cls("com.hkmc.hev.HEVManager")).append('\n');
+        b.append("\n[Profiles]\n");
+        try {
+            b.append("active = ").append(Profiles.active(c)).append(", key = ").append(Profiles.keyProfile(c)).append('\n');
+            b.append("default = ").append(Profiles.setting(c, "default_profile", -1)).append(", auto-advance = ")
+                    .append(Profiles.setting(c, "auto_advance", 3)).append('\n');
+        } catch (Throwable t) { b.append(t).append('\n'); }
+        b.append("\n[Tools]\n");
+        b.append("NEMESIS CLI = ").append(new File(NEMESIS[1]).exists()).append(", dev tools = ").append(new File(DIR + "/verify.sh").exists()).append('\n');
+        return b.toString();
+    }
+
+    /**
+     * Exports summary + the system logs to "<stick>/ccNC logs/<time>/", with personal information removed (LogScrub).
+     * On Android 4.4 an app can neither read the system logs nor write to a USB stick, so NEMESIS root does both ends:
+     *   1. root collects the raw logs into this app's private cache (ccnc-raw), readable by the app;
+     *   2. the app cleans each file into ccnc-clean and writes SANITIZED.txt (what was removed);
+     *   3. root copies only the cleaned files to the stick and deletes both private copies.
+     * The raw logs never reach the stick. Returns root()'s report; on success its output has a line "DIR <folder>".
+     */
+    static String writeLogs(Context c, String summary) {
+        String usb = usbStick();
+        if (usb == null) return "No USB stick.";
+        String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(new java.util.Date());
+        File cache = c.getCacheDir();
+        File raw = new File(cache, "ccnc-raw"), clean = new File(cache, "ccnc-clean");
+        File collect = new File(cache, "ccnc-collect.sh"), copy = new File(cache, "ccnc-copy.sh");
+        try {
+            write(collect, "R=\"$1\"\n"
+                    + "rm -rf \"$R\"; mkdir -p \"$R\" || exit 1\n"
+                    + "logcat -d -v threadtime -b main -b system > \"$R/logcat.txt\" 2>&1\n"
+                    + "logcat -d -v threadtime -b events > \"$R/events.txt\" 2>&1\n"
+                    + "dmesg > \"$R/dmesg.txt\" 2>&1\n"
+                    + "getprop > \"$R/getprop.txt\" 2>&1\n"
+                    + "ps > \"$R/ps.txt\" 2>&1\n"
+                    + "cat /proc/mounts > \"$R/mounts.txt\" 2>&1\n"
+                    + "df > \"$R/df.txt\" 2>&1\n"
+                    + "dumpsys activity activities > \"$R/activities.txt\" 2>&1\n"
+                    + "dumpsys meminfo > \"$R/meminfo.txt\" 2>&1\n"
+                    + "pm list packages -f -i > \"$R/packages.txt\" 2>&1\n"
+                    + "nemesis livepatch status > \"$R/livepatch.txt\" 2>&1\n"
+                    + "for f in " + LP_DIR + "/*; do [ -f \"$f\" ] && echo \"$f: $(cat \"$f\")\"; done >> \"$R/livepatch.txt\" 2>&1\n"
+                    + "ls -lR " + DIR + " > \"$R/ccnc-files.txt\" 2>&1\n"
+                    + "[ -f /data/anr/traces.txt ] && cp /data/anr/traces.txt \"$R/anr-traces.txt\"\n"
+                    + "ls -l /data/tombstones > \"$R/tombstones.txt\" 2>&1\n"
+                    + "chmod 777 \"$R\"; chmod 666 \"$R\"/*\n"
+                    + "echo collected\n"
+                    + "exit 0\n");
+            write(copy, "D=\"$1/ccNC logs/$2\"\n"
+                    + "mkdir -p \"$D\" || exit 1\n"
+                    + "cp \"$3\"/* \"$D/\" || exit 1\n"
+                    + "rm -rf \"$3\" \"$4\"\n"
+                    + "sync\n"
+                    + "echo \"DIR $D\"\n"
+                    + "ls \"$D\" | wc -l\n"
+                    + "exit 0\n");
+        } catch (Throwable t) {
+            return "Couldn't prepare the export: " + t;
+        }
+        try {
+            String r = root("sh " + collect.getAbsolutePath() + " " + raw.getAbsolutePath(), 90000);
+            if (!r.startsWith("Ran through") || !r.contains("collected")) return r;
+            // Clean every file the root step collected, plus ccNC's own summary.
+            deleteTree(clean);
+            if (!clean.mkdirs()) return "Couldn't make " + clean;
+            LogScrub scrub = new LogScrub(c);
+            write(new File(raw, "summary.txt"), summary);
+            File[] files = raw.listFiles();
+            if (files == null || files.length == 0) return "The collected logs couldn't be read (" + raw + ").";
+            for (File f : files) if (f.isFile()) scrub.harvest(f);     // names first, so every file loses them
+            for (File f : files) {
+                if (f.isFile()) scrub.file(f, new File(clean, f.getName()));
+            }
+            write(new File(clean, "SANITIZED.txt"), scrub.report());
+            for (File f : clean.listFiles()) f.setReadable(true, false);
+            r = root("sh " + copy.getAbsolutePath() + " " + usb + " " + stamp + " " + clean.getAbsolutePath() + " " + raw.getAbsolutePath(), 90000);
+            Log.i(TAG, "export logs: " + r);
+            return r;
+        } catch (Throwable t) {
+            Log.w(TAG, "export logs", t);
+            return "Export failed: " + t;
+        } finally {
+            // Whatever happened, no raw or cleaned copy stays behind in the app's storage.
+            root("rm -rf " + raw.getAbsolutePath() + " " + clean.getAbsolutePath(), 15000);
+            deleteTree(raw);
+            deleteTree(clean);
+        }
+    }
+
+    static void deleteTree(File f) {
+        File[] k = f.listFiles();
+        if (k != null) for (File x : k) deleteTree(x);
+        f.delete();
+    }
+
+    static void write(File f, String s) throws java.io.IOException {
+        java.io.FileOutputStream o = new java.io.FileOutputStream(f);
+        try { o.write(s.getBytes("UTF-8")); } finally { o.close(); }
+        f.setReadable(true, false);
     }
 
     // ---- root through the NEMESIS CLI ----

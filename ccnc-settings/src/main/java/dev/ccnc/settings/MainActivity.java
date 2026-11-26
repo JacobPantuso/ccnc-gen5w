@@ -42,7 +42,9 @@ import dev.ccnc.settings.sections.Sections;
  *    menu's list on the right (896 wide at x 512) and the guide-image area (512 wide) after it;
  *  - drilling from a row replaces the list in place; the top bar then shows the sub-page title (ccNC
  *    InternalBackButton: 32px #d1d1d1, co_ic_status_subdepth_arrow between depths). Back pops one level.
- * The category list is the stock Gen5W Setup's own (StockMenu), each backed by a Section (sections/).
+ * The category list is the stock Gen5W Setup's own (StockMenu: names, order and feature checks only), each backed by
+ * a Section (sections/). No category, tab or row opens a stock Gen5W screen: what a normal app cannot change is shown
+ * read-only with a note on the page.
  */
 public final class MainActivity extends Activity implements Host {
 
@@ -55,9 +57,8 @@ public final class MainActivity extends Activity implements Host {
         final String label, icon, special;
         final Section section;
         final StockMenu.Item item;
-        final Intent fallback;
-        Entry(String label, Section section, StockMenu.Item item, Intent fallback, String icon, String special) {
-            this.label = label; this.section = section; this.item = item; this.fallback = fallback; this.icon = icon; this.special = special;
+        Entry(String label, Section section, StockMenu.Item item, String icon, String special) {
+            this.label = label; this.section = section; this.item = item; this.icon = icon; this.special = special;
         }
     }
 
@@ -80,6 +81,7 @@ public final class MainActivity extends Activity implements Host {
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
         dev.ccnc.common.Themes.apply(this);
+        dev.ccnc.settings.api.Demo.init(this);   // emulator-only demo data; never on (and nothing changes) on a car build
         Tree tree = Tree.load(this);
         setupTitle = tree.byId.get(Tree.ROOT).title;   // ccNC LID_1228 "Setup"
         buildEntries(tree);
@@ -96,6 +98,19 @@ public final class MainActivity extends Activity implements Host {
         LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-2, -1);
         cl.leftMargin = 30;
         bar.addView(crumb, cl);
+        if (dev.ccnc.settings.api.Demo.on()) {
+            // A small "Demo" tag after the title / depth text, so emulator screenshots are never taken for car data.
+            TextView demo = Skin.text(this, "Demo", 22, Skin.HEAD, true, 0, 1);
+            android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+            g.setCornerRadius(14);
+            g.setStroke(2, Skin.HEAD);
+            demo.setBackground(g);
+            demo.setPadding(14, 4, 14, 4);
+            LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-2, -2);
+            dl.leftMargin = 24;
+            dl.gravity = Gravity.CENTER_VERTICAL;
+            bar.addView(demo, dl);
+        }
         col.addView(bar);
         body = new FrameLayout(this);
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, BODY_H);
@@ -106,12 +121,24 @@ public final class MainActivity extends Activity implements Host {
 
         // adb: am start -n dev.ccnc.settings/.MainActivity --es open General [--ei tab 0]
         if (getIntent().getBooleanExtra("preview_ambient", false)) { previewAmbient(); return; }
-        String open = getIntent().getStringExtra("open");
+        handleOpen(getIntent());
+    }
+
+    /** singleTask: a second start (e.g. from one of the legacy ccNC pages) lands here. */
+    @Override protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        setIntent(i);
+        if (i != null && i.hasExtra("open")) { showGate(); handleOpen(i); }
+    }
+
+    /** Extra "open": a category by its label or stock classId; optional int extra "tab". */
+    private void handleOpen(Intent i) {
+        String open = i == null ? null : i.getStringExtra("open");
         if (open != null) for (Entry e : entries) {
             if (open.equalsIgnoreCase(e.label) || (e.item != null && open.equals(e.item.classId))
                     || (e.section != null && open.equals(e.section.classId()))) {
                 openEntry(e, false);
-                int t = getIntent().getIntExtra("tab", -1);
+                int t = i.getIntExtra("tab", -1);
                 if (cat != null && t >= 0 && t < cat.tabs.size()) selectTab(t);
                 break;
             }
@@ -155,21 +182,22 @@ public final class MainActivity extends Activity implements Host {
             for (StockMenu.Item it : stock) {
                 if (isAlexa(it.label) || it.classId.toLowerCase(java.util.Locale.US).contains("alexa")) continue;
                 Section s = Sections.byClassId(it.classId);
-                entries.add(new Entry(it.label, s, it, null, s != null ? s.icon() : null, null));
+                if (s instanceof dev.ccnc.settings.sections.NavigationSection) continue; // its settings live in the navigation app
+                entries.add(new Entry(it.label, s, it, s != null ? s.icon() : null, null));
             }
         } else {
             // Stock Setup unreadable (e.g. emulator): ccNC's own top level from its menu tree.
             for (Tree.Node n : tree.byId.get(Tree.ROOT).kids) {
                 if (isAlexa(n.title)) continue;
                 Section s = Sections.byTreeNode(n.id);
+                if (s instanceof dev.ccnc.settings.sections.NavigationSection) continue;
                 boolean cluster = n.title.startsWith("Cluster");
-                entries.add(new Entry(n.title, s, null,
-                        cluster ? Section.component("com.android.vehiclesettings", ".VehicleSetting") : null,
-                        s != null ? s.icon() : cluster ? "set_ic_menu_cluster_hud" : null, null));
+                if (s == null && cluster) continue; // Cluster/HUD is a menu of the Vehicle category on Gen5W
+                entries.add(new Entry(n.title, s, null, s != null ? s.icon() : null, null));
             }
         }
-        entries.add(new Entry("Stock Launcher", null, null, null, null, "launcher"));
-        entries.add(new Entry("NEMESIS", null, null, null, null, "nemesis"));
+        entries.add(new Entry("Stock Launcher", null, null, null, "launcher"));
+        entries.add(new Entry("NEMESIS", null, null, null, "nemesis"));
     }
 
     private static boolean isAlexa(String s) { return s != null && s.trim().equalsIgnoreCase("Alexa"); }
@@ -297,9 +325,12 @@ public final class MainActivity extends Activity implements Host {
         if (e.section != null) {
             try { e.section.build(c); } catch (Throwable t) { Log.w(TAG, "section " + e.label + " failed", t); c.tabs.clear(); }
         }
-        if (c.tabs.isEmpty()) { openStockFor(e); return; }
-        if ((e.section == null || !e.section.complete()) && hasStock(e)) {
-            c.action(stockLabel(e), new Fn.Act() { @Override public void run(Host h) { h.openStock(); } });
+        if (c.tabs.isEmpty()) {
+            // Nothing readable for this category on this unit (e.g. emulator, or a stock category ccNC has no
+            // section for): say so here. The stock Gen5W screen is never opened.
+            c.tab(e.label, new Fn.Build() { @Override public void build(Page p) {
+                p.note("Not available on this unit.");
+            } });
         }
         cur = e; cat = c; tab = -1;
         for (int i = 0; i < c.tabs.size(); i++) if (c.tabs.get(i).page != null) { tab = i; break; }
@@ -315,7 +346,13 @@ public final class MainActivity extends Activity implements Host {
         tabList = new LinearLayout(this);
         tabList.setOrientation(LinearLayout.VERTICAL);
         ls.addView(tabList, new FrameLayout.LayoutParams(492, -2));
-        left.addView(ls, new FrameLayout.LayoutParams(492, -1));
+        // Ends above the back/home bar, which covers the bottom-left corner: the last menus scroll up into view
+        // instead of sitting under it.
+        FrameLayout.LayoutParams lsl = new FrameLayout.LayoutParams(492, -1);
+        lsl.bottomMargin = 44;
+        ls.setVerticalFadingEdgeEnabled(true);
+        ls.setFadingEdgeLength(36);
+        left.addView(ls, lsl);
         for (int i = 0; i < c.tabs.size(); i++) tabList.addView(tabButton(i), new LinearLayout.LayoutParams(472, -2));
         scene.addView(left, new LinearLayout.LayoutParams(512, -1));
 
@@ -453,39 +490,14 @@ public final class MainActivity extends Activity implements Host {
             for (int i = 0; i < ((android.view.ViewGroup) v).getChildCount(); i++) invalidateAll(((android.view.ViewGroup) v).getChildAt(i));
     }
 
-    @Override public void openStock() { if (cur != null) openStockFor(cur); }
+    @Override public void back() { if (!depthPages.isEmpty()) onBackPressed(); }
 
     @Override public void start(Intent i) {
         try { startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
         catch (Throwable t) { Log.w(TAG, "start " + i, t); Toast.makeText(this, "--", Toast.LENGTH_SHORT).show(); }
     }
 
-    // ---- stock screens / extra entries -------------------------------------------------------------
-
-    private Intent stockIntent(Entry e) {
-        if (e.section != null) try { return e.section.stockIntent(this); } catch (Throwable ignored) { }
-        return e.fallback;
-    }
-
-    private boolean hasStock(Entry e) {
-        return (e.item != null && (e.item.opener != null || "com.daudio.app.phoneprojection".equals(e.item.classId))) || stockIntent(e) != null;
-    }
-
-    /** The stock entry's label: the stock Gen5W screen's own name where it resolves, else the category name. */
-    private String stockLabel(Entry e) {
-        Intent i = stockIntent(e);
-        if (i != null && i.getComponent() != null) {
-            try { return String.valueOf(getPackageManager().getActivityInfo(i.getComponent(), 0).loadLabel(getPackageManager())); }
-            catch (Throwable ignored) { }
-        }
-        return e.label;
-    }
-
-    private void openStockFor(Entry e) {
-        if (e.item != null && StockMenu.openStock(this, e.item)) return;
-        Intent i = stockIntent(e);
-        if (i != null) start(i); else Toast.makeText(this, "--", Toast.LENGTH_SHORT).show();
-    }
+    // ---- extra entries ------------------------------------------------------------------------
 
     private void openSpecial(String s) {
         try {

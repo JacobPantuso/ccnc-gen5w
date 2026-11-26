@@ -25,6 +25,8 @@ final class ButtonSectionStock {
      * stock app's own Application would have, since its static helpers ask it for one. null if the app isn't there.
      */
     static ButtonSectionStock open(Context c, String pkg, String appCls, String instField) {
+        dev.ccnc.settings.api.Demo.init(c);
+        if (dev.ccnc.settings.api.Demo.on()) return new ButtonSectionStock(pkg, c.getApplicationContext()); // demo: answers come from Demo
         try {
             Context sc = c.createPackageContext(pkg, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
             ButtonSectionStock s = new ButtonSectionStock(pkg, sc);
@@ -51,6 +53,7 @@ final class ButtonSectionStock {
 
     /** Static no-arg boolean check of the stock app (false when it throws). */
     boolean is(String cls, String method) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.check(method);
         try { return (Boolean) cl.loadClass(cls).getMethod(method).invoke(null); }
         catch (Throwable t) { Log.w(TAG, cls + "." + method, t); return false; }
     }
@@ -58,6 +61,7 @@ final class ButtonSectionStock {
 
     /** A system property (android.os.SystemProperties.get), "" when unreadable. */
     static String prop(String key) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Car.prop(key);
         try { return (String) Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, key, ""); }
         catch (Throwable t) { return ""; }
     }
@@ -67,6 +71,7 @@ final class ButtonSectionStock {
      * helpers use it (Wrapper$UserProfileManager.getUserType(): 1 -> _dr1, 2 -> _dr2, otherwise the plain key).
      */
     static String userSuffix(Context c) {
+        if (dev.ccnc.settings.api.Demo.on()) return "";
         try {
             ButtonSectionStock b = open(c, "com.android.buttonsettings", null, null);
             if (b == null) return "";
@@ -79,12 +84,14 @@ final class ButtonSectionStock {
 
     /** Static boolean check of the stock app taking a Context (the stock package context). */
     boolean isCtx(String cls, String method) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.check(method);
         try { return (Boolean) cl.loadClass(cls).getMethod(method, Context.class).invoke(null, sc); }
         catch (Throwable t) { Log.w(TAG, cls + "." + method, t); return false; }
     }
 
     /** A stock string resource by name (current locale), line breaks joined; null if missing. */
     String str(String name) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.str(name);
         try {
             int id = sc.getResources().getIdentifier(name, "string", pkg);
             return id == 0 ? null : clean(sc.getResources().getString(id));
@@ -93,6 +100,7 @@ final class ButtonSectionStock {
 
     /** A stock string resource by id; null if missing. */
     String str(int id) {
+        if (dev.ccnc.settings.api.Demo.on()) return null;
         try { return clean(sc.getResources().getString(id)); } catch (Throwable t) { return null; }
     }
 
@@ -100,12 +108,14 @@ final class ButtonSectionStock {
 
     /** Static int getter cls.method(Context) of the stock app; def when it throws. */
     int getInt(String cls, String method, int def) {
+        if (dev.ccnc.settings.api.Demo.on()) return dev.ccnc.settings.api.Demo.getInt("btn." + cls, 0);
         try { return (Integer) cl.loadClass(cls).getMethod(method, Context.class).invoke(null, sc); }
         catch (Throwable t) { Log.w(TAG, cls + "." + method, t); return def; }
     }
 
     /** Static setter cls.method(Context, int) of the stock app. */
     void setInt(String cls, String method, int v) {
+        if (dev.ccnc.settings.api.Demo.on()) { dev.ccnc.settings.api.Demo.put("btn." + cls, v); return; }
         try { cl.loadClass(cls).getMethod(method, Context.class, int.class).invoke(null, sc, v); }
         catch (Throwable t) { Log.w(TAG, cls + "." + method + "(" + v + ")", t); }
     }

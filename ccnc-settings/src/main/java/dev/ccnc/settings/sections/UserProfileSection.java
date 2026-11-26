@@ -1,9 +1,10 @@
 package dev.ccnc.settings.sections;
 
 import android.content.Context;
-import android.content.Intent;
 import android.util.Log;
 
+import dev.ccnc.settings.api.Ask;
+import dev.ccnc.settings.api.Car;
 import dev.ccnc.settings.api.Category;
 import dev.ccnc.settings.api.Fn;
 import dev.ccnc.settings.api.Host;
@@ -14,11 +15,16 @@ import dev.ccnc.common.Profiles;
 /**
  * User Profile (stock classId com.hkmc.system.app.userprofile.UserProfileMainActivity).
  *   Change User         ccNC Profile's chooser (instant feedback; the car's password screen when a profile has one)
- *   Default Profile     ccNC's choice on the start-up chooser: Follow Key (the car's own) or a profile
+ *   Default Profile     ccNC's choice on the start-up chooser: Last Used (the car's own choice, which follows the key on cars with key-profile linking) or a profile
  *   Auto-Advance        how long the start-up chooser counts down before it continues (3 s default; Off = wait)
  *   <name> photo        ccNC Profile's photo picker (ccNC avatars, the car's photo, a picture from a USB stick)
- *   Names & Passwords   the stock profile screen (only it can change names, passwords and linked accounts)
+ *   Names               UserProfileManager.setUserName(type, name), the call the stock profile app makes (b.q);
+ *                       typed in a ccNC panel. Guest keeps the car's name.
+ *   Passwords           NOT PORTED on purpose (note): UserProfileManager.setUserPassword exists, but how the stock app
+ *                       encodes the password and couples it to the profile lock / Bluelink account is not decoded, and
+ *                       a wrong write could lock a profile. Linked accounts and Digital Key are telematics flows.
  * Default profile, auto-advance and photos are stored by ccNC Profile (content://dev.ccnc.profile).
+ * Nothing opens the stock profile screen.
  */
 public final class UserProfileSection extends Section {
     @Override public String classId() { return "com.hkmc.system.app.userprofile.UserProfileMainActivity"; }
@@ -35,11 +41,18 @@ public final class UserProfileSection extends Section {
             @Override public void build(Page p) {
                 p.value(p.word(6010, "Change User"),
                         new Fn.Str() { @Override public String get() { String n = activeName(x); return n != null ? n : Profiles.name(x, Profiles.active(x)); } },
-                        new Fn.Act() { @Override public void run(Host h) { h.openStock(); } });
-                final String[] defLabels = {"Follow Key (Stock)", Profiles.name(x, 0), Profiles.name(x, 1), Profiles.name(x, 2)};
-                p.choice("Default Profile", defLabels,
-                        new Fn.Int() { @Override public int get() { return Profiles.setting(x, "default_profile", -1) + 1; } },
-                        new Fn.SetInt() { @Override public void set(int v) { Profiles.setSetting(x, "default_profile", v - 1); } });
+                        new Fn.Act() { @Override public void run(Host h) { h.start(component("dev.ccnc.profile", ".MainActivity")); } });
+                final String[] defLabels = {"Last Used", Profiles.name(x, 0), Profiles.name(x, 1), Profiles.name(x, 2)};
+                final Fn.Int defGet = new Fn.Int() { @Override public int get() { return Profiles.setting(x, "default_profile", -1) + 1; } };
+                final Fn.SetInt defSet = new Fn.SetInt() { @Override public void set(int v) { Profiles.setSetting(x, "default_profile", v - 1); } };
+                p.drill("Default Profile", new Fn.Str() { @Override public String get() {
+                    int i = defGet.get();
+                    return i >= 0 && i < defLabels.length ? defLabels[i] : defLabels[0];
+                } }, new Fn.Build() { @Override public void build(Page q) {
+                    // Key recognition isn't something the unit reports; cars that have it switch profile by themselves.
+                    q.radios(defLabels, new String[]{"On vehicles that support key-profile linking, this follows the profile linked to the key or digital key."},
+                            defGet, defSet);
+                } });
                 p.choice("Auto-Advance", AUTO_LABELS,
                         new Fn.Int() { @Override public int get() {
                             int s = Profiles.setting(x, "auto_advance", 3);
@@ -53,7 +66,23 @@ public final class UserProfileSection extends Section {
                     p.value(Profiles.name(x, id), new Fn.Str() { @Override public String get() { return "Change"; } },
                             new Fn.Act() { @Override public void run(Host h) { Profiles.pickPhoto(x, id); } });
                 }
-                p.activity("Names & Passwords", component(PKG, ".UserProfileMainActivity"));
+                p.heading("Names");
+                for (int i = 1; i < Profiles.COUNT; i++) {
+                    final int id = i;
+                    p.value(Profiles.name(x, id), new Fn.Str() { @Override public String get() { return "Rename"; } },
+                            new Fn.Act() { @Override public void run(final Host h) {
+                                Ask.text(h.activity(), "Profile Name", Profiles.name(x, id), false, 20, new Ask.Text() {
+                                    @Override public void onText(String v) {
+                                        if (v.length() == 0) return;
+                                        Car.call(Car.manager(x, "com.hkmc.userprofile.UserProfileManager"), "setUserName",
+                                                new Class<?>[] { int.class, String.class }, id, v);
+                                        new android.os.Handler().postDelayed(new Runnable() { @Override public void run() { h.refresh(); } }, 600);
+                                    }
+                                });
+                            } });
+                }
+                p.heading(p.word(6002, "Security"));
+                p.note("Profile passwords, linked accounts and Digital Key are not available in ccNC Setup.");
             }
         });
     }
@@ -77,8 +106,4 @@ public final class UserProfileSection extends Section {
         }
     }
 
-    @Override public Intent stockIntent(Context c) { return component("dev.ccnc.profile", ".MainActivity"); }
-
-    /** Everything is on the page (Change User opens ccNC Profile, Names & Passwords the stock screen): no extra tab. */
-    @Override public boolean complete() { return true; }
 }

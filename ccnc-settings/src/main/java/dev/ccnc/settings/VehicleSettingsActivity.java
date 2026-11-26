@@ -1,9 +1,7 @@
 package dev.ccnc.settings;
 
 import android.app.Activity;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
@@ -13,7 +11,6 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -265,14 +262,9 @@ public final class VehicleSettingsActivity extends Activity {
         catch (Throwable t) { return Integer.MIN_VALUE; }
     }
 
+    /** ccNC Setup's Vehicle category (the stock Vehicle Settings screen is no longer opened). */
     private void openStock() {
-        try {
-            startActivity(new Intent(Intent.ACTION_MAIN).setComponent(
-                    new ComponentName("com.android.vehiclesettings", "com.android.vehiclesettings.VehicleSetting"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Throwable t) {
-            Toast.makeText(this, "Vehicle settings aren't available", Toast.LENGTH_SHORT).show();
-        }
+        Ui.openSetup(this, "com.android.vehiclesettings.VehicleSetting");
     }
 
     private View topBar() {

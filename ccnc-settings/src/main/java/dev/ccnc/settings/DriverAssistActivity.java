@@ -1,15 +1,12 @@
 package dev.ccnc.settings;
 
 import android.app.Activity;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.Bundle;
-import android.os.Handler;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -18,7 +15,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.lang.reflect.Method;
 
@@ -225,18 +221,9 @@ public final class DriverAssistActivity extends Activity {
         return r;
     }
 
-    /** Opens the stock Vehicle Settings, then jumps to its driver-assistance section with the same shortcut the hard key uses. */
+    /** ccNC Setup's Vehicle category, whose first menu is Driver Assistance (the stock screen is no longer opened). */
     private void openStock() {
-        try {
-            startActivity(new Intent(Intent.ACTION_MAIN).setComponent(
-                    new ComponentName("com.android.vehiclesettings", "com.android.vehiclesettings.VehicleSetting"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            new Handler().postDelayed(new Runnable() {
-                @Override public void run() { sendBroadcast(new Intent("com.mobis.intent.action.DRIVER_ASSISTANCE_SHORTCUT")); }
-            }, 900);
-        } catch (Throwable t) {
-            Toast.makeText(this, "Vehicle settings aren't available", Toast.LENGTH_SHORT).show();
-        }
+        Ui.openSetup(this, "com.android.vehiclesettings.VehicleSetting");
     }
 
     private View topBar() {

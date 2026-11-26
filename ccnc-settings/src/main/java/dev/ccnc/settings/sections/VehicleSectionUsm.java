@@ -49,6 +49,7 @@ final class VehicleSectionUsm {
 
     private static VehicleSectionUsm one, ev;
     static synchronized VehicleSectionUsm get(Context c) {
+        dev.ccnc.settings.api.Demo.init(c);
         if (one == null) one = new VehicleSectionUsm(c.getApplicationContext(), PKG, URI, ROOT_MAJOR);
         return one;
     }
@@ -60,6 +61,7 @@ final class VehicleSectionUsm {
     static final String EV_PKG = "com.hkmc.daudio.app.ev3";
     private static final Uri EV_URI = Uri.parse("content://com.hkmc.daudio.app.ev3.ssearch.EvSettingsProvider/settingDB.db");
     static synchronized VehicleSectionUsm ev(Context c) {
+        dev.ccnc.settings.api.Demo.init(c);
         if (ev == null) ev = new VehicleSectionUsm(c.getApplicationContext(), EV_PKG, EV_URI, -1);
         return ev;
     }
@@ -138,6 +140,7 @@ final class VehicleSectionUsm {
     int value(int key) { ask(key); Integer v = vals.get(key); return v == null ? -1 : v; }
 
     private void ask(int key) {
+        if (dev.ccnc.settings.api.Demo.on()) return; // emulator demo: values are seeded with the demo tree
         Long t = asked.get(key);
         long now = System.currentTimeMillis();
         if (t != null && now - t < 10000) return;
@@ -150,6 +153,7 @@ final class VehicleSectionUsm {
 
     /** Not tested on car. */
     void set(int key, int status) {
+        if (dev.ccnc.settings.api.Demo.on()) { vals.put(key, status); return; }
         try {
             Integer type = types.get(key);
             app.sendBroadcast(new Intent(SET_REQ).setPackage(pkg).putExtra("type", type == null ? 0 : type)
@@ -165,6 +169,14 @@ final class VehicleSectionUsm {
 
     /** Top-level stock menus (major 3313) with their trees; empty when the provider isn't there. */
     synchronized List<Node> menus() {
+        if (dev.ccnc.settings.api.Demo.on()) { // emulator demo: the invented tree instead of the stock provider's table
+            if (menus == null) {
+                Map<Integer, Integer> seed = new HashMap<Integer, Integer>();
+                menus = DemoData.menus(rootMajor < 0, seed);
+                vals.putAll(seed);
+            }
+            return menus;
+        }
         if (menus != null && System.currentTimeMillis() - menusAt < 10000) return menus;
         List<Node> out = new ArrayList<Node>();
         Map<Integer, Node> byKey = new HashMap<Integer, Node>();
@@ -327,6 +339,7 @@ final class VehicleSectionUsm {
 
     /** The stock left-menu check for a menu (by its minor id); null when it can't be evaluated. */
     Boolean menuSupported(int minor) {
+        if (dev.ccnc.settings.api.Demo.on()) return null; // demo: a menu shows when it has items
         switch (minor) {
             // names from the car's build (KVT49L, ui/aw "checkFirstViewType"); a missing one logs and returns null
             case 3315: return call("Utils", "isSupportDriverAssistance", false);

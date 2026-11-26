@@ -13,6 +13,17 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="com.hkmc.permission.AUTOMOTIVE_STATE" />
+    <!-- Native settings pages (no stock Gen5W screens): -->
+    <!-- General > Time Zone: AlarmManager.setTimeZone (normal permission on this firmware). -->
+    <uses-permission android:name="android.permission.SET_TIME_ZONE" />
+    <!-- General > Language: IActivityManager.updateConfiguration. signature|system|development: effective only after
+         the LivePatch step "pm grant dev.ccnc.settings android.permission.CHANGE_CONFIGURATION"; read-only otherwise. -->
+    <uses-permission android:name="android.permission.CHANGE_CONFIGURATION" />
+    <!-- Data/Network > Bluelink > Modem Information (read only). -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Buttons: com.hkmc.mode.ModeManager custom key / MODE button (normal HKMC permissions). -->
+    <uses-permission android:name="com.hkmc.permission.READ_MODE" />
+    <uses-permission android:name="com.hkmc.permission.WRITE_MODE" />
 
     <application android:name="dev.ccnc.common.CcncApp"
         android:label="Settings"

@@ -193,7 +193,7 @@ public final class MainActivity extends Activity implements Profiles.Listener {
     /** Lights the profile it will pick and runs the ring backwards for the auto-advance time. */
     private void startCountdown() {
         int def = ProfileStore.defaultProfile(this);
-        // Follow Key (or a default with a password): the profile of the key / digital key, as the stock screen does.
+        // Last Used (or a default with a password): the profile the car is on, which follows the key on cars with key-profile linking.
         countdownId = def >= 0 && !locked[def] ? def : keyProfile >= 0 ? keyProfile : active;
         int secs = ProfileStore.autoAdvance(this);
         if (secs < 0) { countdownMs = 0; status.setText("Tap a profile to continue"); cards.invalidate(); return; }

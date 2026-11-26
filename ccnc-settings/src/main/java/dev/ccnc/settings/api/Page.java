@@ -115,13 +115,16 @@ public final class Page {
     // ---- radio --------------------------------------------------------------------------------
 
     /** ccNC RADIODELEGATE rows, one per label (bco_radio_btn); tap calls set(index) and redraws the page. */
-    public void radios(String[] labels, final Fn.Int get, final Fn.SetInt set) {
+    public void radios(String[] labels, final Fn.Int get, final Fn.SetInt set) { radios(labels, null, get, set); }
+
+    /** Radios with an optional caption under each label ({@code subs} may be null, or hold nulls). */
+    public void radios(String[] labels, String[] subs, final Fn.Int get, final Fn.SetInt set) {
         int cur = safe(get);
         boolean colours = AmbientColors.isColourList(labels);
         for (int i = 0; i < labels.length; i++) {
             final int idx = i;
             FrameLayout[] holder = new FrameLayout[1];
-            indicatorRow(labels[i], null, "bco_radio_btn", holder, colours);
+            indicatorRow(labels[i], subs != null && i < subs.length ? subs[i] : null, "bco_radio_btn", holder, colours);
             holder[0].setSelected(i == cur);
             holder[0].setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
@@ -189,9 +192,24 @@ public final class Page {
         return item(t, null, new Fn.Act() { @Override public void run(Host h) { h.start(i); } }, true);
     }
 
-    /** Row opening this category's stock Gen5W screen (title: the stock screen's own name). */
-    public Row stock(String t) {
-        return item(t, null, new Fn.Act() { @Override public void run(Host h) { h.openStock(); } }, true);
+    /** Read-only row: title with its current value under it (no arrow, not tappable). */
+    public Row info(String t, final String value) {
+        return item(t, value == null ? null : new Fn.Str() { @Override public String get() { return value; } }, null, false);
+    }
+
+    /**
+     * Explanatory text (ccNC description style: 28px sub-text colour, wrapped). Used where a setting can't be
+     * changed from a normal app, to say so on the page instead of opening a stock screen.
+     */
+    public Row note(String t) {
+        FrameLayout r = new FrameLayout(c);
+        TextView tv = Skin.text(c, t, 28, Skin.SUB, false, 36, 8);
+        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(Skin.LIST_W - 44 - 50, -2);
+        tl.leftMargin = 44; tl.topMargin = 26; tl.bottomMargin = 26;
+        r.addView(tv, tl);
+        line(r);
+        add(r, -2);
+        return new Row(r, null, tv);
     }
 
     /** Plain tappable row without arrow (actions such as a reset that ccNC shows as a list item). */

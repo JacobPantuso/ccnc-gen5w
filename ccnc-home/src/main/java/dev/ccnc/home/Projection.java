@@ -74,4 +74,31 @@ final class Projection {
             return new State(false, true, true);
         }
     }
+
+    /**
+     * Opens Android Auto. Its screen (projection.sink/.ui.MainActivity) isn't exported: only the system launcher may
+     * start it. Apps go through the mode manager instead, which sends Android Auto its GPM_SHORTCUT the way the MODE
+     * key does; failing that, the same GPM_SHORTCUT straight to Android Auto's exported service. False if neither worked.
+     */
+    static boolean openAndroidAuto(Context ctx) {
+        try {
+            Class<?> c = Class.forName("com.hkmc.mode.ModeManager");
+            Object mm = c.getConstructor(Context.class).newInstance(ctx);
+            Object ok = c.getMethod("changeMode", Integer.class).invoke(mm, Integer.valueOf(MODE_GPM));
+            Log.i(WeatherClient.TAG, "projection: changeMode(GPM) = " + ok);
+            if (Boolean.TRUE.equals(ok)) return true;
+        } catch (Throwable t) {
+            Log.w(WeatherClient.TAG, "projection: changeMode(GPM) failed", t);
+        }
+        try {
+            android.content.Intent i = new android.content.Intent("com.hkmc.intent.action.GPM_SHORTCUT")
+                    .setPackage(ANDROID_AUTO_PKG).putExtra("com.hkmc.mode.EXTRA_SHORTCUT_REASON", 3);
+            boolean ok = ctx.startService(i) != null;
+            Log.i(WeatherClient.TAG, "projection: GPM_SHORTCUT to the service = " + ok);
+            return ok;
+        } catch (Throwable t) {
+            Log.w(WeatherClient.TAG, "projection: GPM_SHORTCUT failed", t);
+            return false;
+        }
+    }
 }

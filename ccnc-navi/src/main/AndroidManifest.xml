@@ -28,5 +28,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- ccNC search (own keyboard: the unit's IME is stock-styled) and POI categories. -->
+        <activity
+            android:name=".SearchActivity"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:windowSoftInputMode="stateAlwaysHidden"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+        <activity
+            android:name=".CategoriesActivity"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+
+        <!-- The stock engine's sticky destination broadcast: each destination it starts becomes a ccNC recent. -->
+        <receiver android:name=".DestinationReceiver">
+            <intent-filter>
+                <action android:name="com.mnsoft.navi.action.DestinationInfo" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

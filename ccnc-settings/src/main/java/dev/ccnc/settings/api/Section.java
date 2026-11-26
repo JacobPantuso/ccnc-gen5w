@@ -1,7 +1,6 @@
 package dev.ccnc.settings.api;
 
 import android.content.ComponentName;
-import android.content.Context;
 import android.content.Intent;
 
 /**
@@ -20,17 +19,12 @@ public abstract class Section {
 
     /**
      * Add the category's left-list menus (c.tab(...)). Only menus with rows we really read/write on this car.
-     * Called each time the category opens. Add nothing and the card opens the stock screen directly.
+     * Called each time the category opens. Add nothing and the card shows a "Not available on this unit." page:
+     * ccNC Setup never opens a stock Gen5W screen.
      */
     public abstract void build(Category c);
 
-    /** Stock Gen5W screen for this category when the stock Setup's own opener can't be used; null if none. */
-    public Intent stockIntent(Context c) { return null; }
-
-    /** True once every stock setting of the category is covered here: the stock entry is then left out. */
-    public boolean complete() { return false; }
-
-    /** An explicit-component intent; cls may start with "." (relative to pkg). */
+    /** An explicit-component intent (ccNC's own apps only); cls may start with "." (relative to pkg). */
     public static Intent component(String pkg, String cls) {
         return new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(pkg, cls.startsWith(".") ? pkg + cls : cls))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

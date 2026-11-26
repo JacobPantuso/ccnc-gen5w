@@ -23,7 +23,7 @@ cp -R "$COMMON/assets-da/." build/assets/
 "$BT/aapt2" link -o build/unsigned.apk -I "$PLATFORM" \
   --manifest src/main/AndroidManifest.xml \
   -A build/assets \
-  --min-sdk-version 19 --target-sdk-version "${TARGET_SDK:-19}" \
+  --min-sdk-version 19 --target-sdk-version "${TARGET_SDK:-19}" ${DEBUGGABLE:+--debug-mode} \
   --java build/gen build/res/*.flat
 
 javac -source 8 -target 8 -Xlint:-options -encoding UTF-8 \
