@@ -9,16 +9,18 @@ unit. Please read this page before installing.
 
 | Part | How | Undo |
 |---|---|---|
-| ccNC apps | Installed as normal apps, next to the stock apps | Removed on uninstall |
+| ccNC apps | Installed as normal apps, next to the stock apps | Removed on uninstall; Climate and Home right after the restart |
 | System changes | NEMESIS LivePatch mounts patched copies over 4 system files at startup | Uninstall and restart: stock files are back |
-| Settings | A notification listener for ccNC Home; tools in `/data/ccnc` for the developer menu | Removed on uninstall |
+| Settings | A notification listener for ccNC Home; tools and records in `/data/ccnc` for the developer menu; stock copies in `/data/hmgapi/stock` so HMG-API keeps its hooks on | Listener and stock copies on uninstall; `/data/ccnc` after the restart |
 
 Nothing is written to `/system`. The stock files stay byte for byte as shipped.
 
 ## How it's kept safe
 
 - **Firmware checks.** Each system change finds the code it changes by name. If it can't, it leaves that file
-  stock instead of guessing.
+  stock instead of guessing. If the patch tool itself fails, the install stops before anything is changed.
+- **Apps before patches.** The apps are installed before NEMESIS commits any system change. If an app can't be
+  installed, the install stops and the car stays as it was.
 - **Install guards.** The package refuses to install on a NEMESIS release known to be unsafe with HMG-API, while
   any ccNC 1.x package is still installed, or before Android has finished starting.
 - **Boot safety net.** If Android fails to start several times in a row, NEMESIS starts the next boot fully

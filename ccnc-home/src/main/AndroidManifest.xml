@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.ccnc.home"
-    android:versionCode="17"
-    android:versionName="1.16">
+    android:versionCode="18"
+    android:versionName="1.17">
 
 
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <!-- This head unit's activity manager checks GET_TASKS even in Activity.finish(). -->
     <uses-permission android:name="android.permission.GET_TASKS" />
@@ -59,6 +60,26 @@
         <receiver android:name=".StoreCheckReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+            </intent-filter>
+        </receiver>
+        <!-- Default profile and auto-advance on the stock start-up profile screen (StartupProfile). -->
+        <receiver android:name=".StartupProfile" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <!-- The car's NAV key -> ccNC Navigation, the MEDIA key's source list -> ccNC Media (HardKeyReceiver).
+             priority 1000 runs ahead of every stock receiver of these ordered broadcasts (all 0). The MAP key stays stock. -->
+        <receiver android:name=".HardKeyReceiver" android:exported="true">
+            <intent-filter android:priority="1000">
+                <action android:name="com.hkmc.intent.action.NAVI_SHORTCUT" />
+                <action android:name="com.mobis.intent.action.MEDIAGATE_SHORTCUT" />
+            </intent-filter>
+        </receiver>
+        <!-- Finishes an uninstall of ccNC for Gen5W after the restart (UninstallCleanup). -->
+        <receiver android:name=".UninstallCleanup" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
     </application>

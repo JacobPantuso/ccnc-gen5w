@@ -53,7 +53,10 @@ public final class Chrome {
      * A slim status strip (home button, date, Bluetooth, clock) for full-screen layouts that draw
      * their own controls to the edges, like ccNC's climate page. No title and no media button.
      */
-    public static View statusStrip(final Activity a) {
+    public static View statusStrip(final Activity a) { return statusStrip(a, true); }
+
+    /** {@code profile}: false on the profile chooser itself (it shows the profiles in full). */
+    public static View statusStrip(final Activity a, boolean profile) {
         final float dp = a.getResources().getDisplayMetrics().density;
         final Paint date = new Paint(Paint.ANTI_ALIAS_FLAG), time = new Paint(Paint.ANTI_ALIAS_FLAG),
                 ampm = new Paint(Paint.ANTI_ALIAS_FLAG), bt = new Paint(Paint.ANTI_ALIAS_FLAG), p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG),
@@ -105,7 +108,14 @@ public final class Chrome {
         };
         v.setClickable(true);
         v.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View x) { goHome(a); } });
-        return v;
+        if (!profile) return v;
+        // The active profile next to the home button, as on the full top bar.
+        android.widget.FrameLayout f = new android.widget.FrameLayout(a);
+        f.addView(v, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        android.widget.FrameLayout.LayoutParams cp = new android.widget.FrameLayout.LayoutParams(-2, -1, Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        cp.leftMargin = (int) (56 * dp);
+        f.addView(new ProfileChip(a), cp);
+        return f;
     }
 
     private static Object audio;
@@ -139,7 +149,10 @@ public final class Chrome {
         a.startActivity(i);
     }
 
-    /** ccNC's bottom row: a back/home pill on the left and the now-playing pill on the right (not in the media app). */
+    /**
+     * ccNC's bottom row: a back/home pill on the left and the now-playing pill on the right (not in the media app).
+     * Right-hand drive (Drive.rhd()): swapped, so back and home are next to the driver.
+     */
     private static void addBottomBars(final Activity a) {
         a.getWindow().getDecorView().post(new Runnable() {
             @Override public void run() {
@@ -177,6 +190,12 @@ public final class Chrome {
         private Bitmap art;
         private long pos, dur;
         private int down = -1; // 0 back, 1 home, 2 now playing
+        /** Right-hand drive: back/home on the right (next to the driver), now playing on the left. */
+        private final boolean rhd = Drive.rhd(getContext());
+
+        /** Left edges of the two pills, in ccNC pixels. */
+        private float navL() { return rhd ? getWidth() / scale() - PILL_L : 0f; }
+        private float npL() { return rhd ? 0f : getWidth() / scale() - PILL_R; }
 
         private final android.content.BroadcastReceiver rx = new android.content.BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) { onFeed(i); }
@@ -244,8 +263,9 @@ public final class Chrome {
         private int hit(float x, float y) {
             float k = scale();
             if (y < 0 || y > getHeight()) return -1;
-            if (x <= PILL_L * k) return x < PILL_L * k / 2f ? 0 : 1;
-            if (nowPlaying && x >= getWidth() - PILL_R * k) return 2;
+            float px = x / k, nl = navL(), ml = npL();
+            if (px >= nl && px <= nl + PILL_L) return px < nl + PILL_L / 2f ? 0 : 1;
+            if (nowPlaying && px >= ml && px <= ml + PILL_R) return 2;
             return -1;
         }
 
@@ -286,16 +306,16 @@ public final class Chrome {
             c.save();
             c.scale(k, k); // draw in ccNC's own pixels
             // Back and home.
-            pill(c, 0f, PILL_L, false);
-            float[] cx = {83f, 235f};
+            float nl = navL();
+            pill(c, nl, nl + PILL_L, false);
+            float[] cx = {nl + 83f, nl + 235f};
             Bitmap[] ic = {back, home};
             for (int i = 0; i < 2; i++) {
                 if (down == i) { fill.setColor(Palette.PRESS); c.drawCircle(cx[i], 45f, 38f, fill); }
                 if (ic[i] != null) { r.set(cx[i] - 40f, 5f, cx[i] + 40f, 85f); c.drawBitmap(ic[i], null, r, bmp); }
             }
             if (nowPlaying) {
-                float l = 1920f - PILL_R / 1f * 1f; // right pill origin in ccNC pixels
-                l = getWidth() / k - PILL_R;
+                float l = npL(); // now-playing pill origin in ccNC pixels
                 pill(c, l, l + PILL_R, down == 2);
                 // Cover (or the media icon on a plain tile), 90 x 90, rounded.
                 r.set(l, 0f, l + 90f, 90f);
@@ -389,8 +409,15 @@ public final class Chrome {
             bt.setStrokeJoin(Paint.Join.ROUND);
             bt.setStrokeCap(Paint.Cap.ROUND);
 
+            // Top left: the active profile (photo + name), like stock Gen5W and ccNC. Tap: ccNC Profile.
+            addView(new ProfileChip(a), new LinearLayout.LayoutParams(-2, -1));
+            View sep = new View(a);
+            sep.setBackgroundColor(Palette.alpha(Palette.TEXT, 0x33));
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(Math.max(1, (int) dp), (int) (26 * dp));
+            sp.leftMargin = (int) (12 * dp);
+            addView(sep, sp);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-            lp.leftMargin = (int) (22 * dp);
+            lp.leftMargin = (int) (16 * dp);
             TextView t = new TextView(a);
             t.setText(title);
             t.setTextSize(22f);

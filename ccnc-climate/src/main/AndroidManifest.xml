@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.ccnc.climate"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="2"
+    android:versionName="1.1">
 
     <uses-permission android:name="android.permission.GET_TASKS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
@@ -38,10 +38,13 @@
             </intent-filter>
         </activity>
 
-        <!-- The car's seat buttons: opens or closes the seat popup over the current screen, no screen of its own. -->
+        <!-- The car's seat buttons: opens or closes the seat popup over the current screen, no screen of its own.
+             taskAffinity "": its own task, so it never brings a ccNC Climate opened earlier to the front; when it
+             finishes (at once) the app that was on screen is still there, and stays there when the popup closes. -->
         <activity
             android:name=".SeatOverlayActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity=""
             android:noHistory="true"
             android:excludeFromRecents="true"
             android:stateNotNeeded="true"

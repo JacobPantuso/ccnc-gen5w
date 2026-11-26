@@ -35,7 +35,7 @@
 ## Install from a USB stick
 
 1. Download **`ccnc.gen5w-<version>-nemesis.zip`** from the
-   [latest release](https://github.com/JacobPantuso/ccnc-gen5w/releases/latest).
+   [releases page](https://github.com/JacobPantuso/ccnc-gen5w/releases) (the newest version at the top).
 2. Unzip it onto the **root** of a FAT32 USB stick. You should see `NEMESIS.data` and a `packages` folder.
 3. Plug the stick in, open **NEMESIS Manager > Package Store** and install **ccNC for Gen5W**.
 4. Tap **Restart Now** when the queue finishes.
@@ -63,6 +63,11 @@ Your home-screen layout and theme are reset by this one-time move.
 ## Uninstalling
 
 1. In **NEMESIS Manager**, uninstall **ccNC for Gen5W**.
-2. Restart the head unit. The stock home screen, files and pop-ups are back.
+2. **Restart the head unit straight away.** The stock files, buttons and pop-ups come back with the restart. Until
+   then ccNC Climate and ccNC Home stay installed, so the climate and seat buttons keep working; ccNC Home removes
+   them both, and its files in `/data/ccnc`, by itself after the restart.
+
+If an update fails part-way, install the package again: the apps from the previous version stay in place until
+the new one installs.
 
 Something not right? See [Troubleshooting](TROUBLESHOOTING.md).

@@ -84,14 +84,34 @@ final class Curated {
             {"com.android.development/.Development", "Dev Tools", Icons.Kind.APP, "general"},
     };
 
+    /**
+     * Stock apps that a ccNC app replaces: hidden while that ccNC app is installed, unless the owner shows them
+     * again from "Show hidden apps" (AppRepo.hidden). Stock key -> ccNC package.
+     */
+    static final Map<String, String> REPLACED = new HashMap<String, String>();
+    static {
+        String[][] r = {
+                {"com.hkmc.bluetooth/com.android.contacts.DialtactsActivity", "dev.ccnc.phone"},
+                {"com.daudio.app.voicememo/.MainActivity", "dev.ccnc.voicememo"},
+                {"com.mnsoft.navi/.NaviApp", "dev.ccnc.navi"},
+                {"com.hkmc.av.app.radiona/.RadioMainActivity", "dev.ccnc.radio"},
+                {"com.hkmc.av.app.mediagate/.MediaGateActivity", "dev.ccnc.media"},
+                {"com.hkmc.telematics.service.apps.climate/.activities.UIClimate", "dev.ccnc.climate"},
+                {"com.hkmc.daudio.app.ev3/.MainActivity", "dev.ccnc.ev"},
+                {"com.hkmc.system.app.userprofile/.UserProfileMainActivity", "dev.ccnc.profile"},
+                {"com.android.settings/.Settings", "dev.ccnc.settings"},
+        };
+        for (String[] x : r) REPLACED.put(x[0], x[1]);
+    }
+
     /** Shown in "Show hidden apps" but not on the pages until the owner unhides them. */
     static final Set<String> DEFAULT_HIDDEN = new HashSet<String>(Arrays.asList(
             // Stock settings apps replaced by the ccnc-settings hub.
             "com.android.settings/.Settings",
             "com.android.vehiclesettings/.VehicleSetting",
             "com.android.rear_care/.RearCareModeMainActivity",
-            // Stock media app replaced by the ccNC panel (transport works). The stock climate
-            // app stays visible until ccnc-climate can write to the vehicle.
+            // Stock media app replaced by the ccNC panel (transport works). The other stock apps
+            // ccNC replaces are hidden through REPLACED while their ccNC app is installed.
             "com.hkmc.av.app.mediagate/.MediaGateActivity",
             "com.android.btsettings/com.android.settings2.bluetooth.BluetoothSettings",
             "com.hkmc.wifisettings/.settings.ui.NetworkConnectionSettings",

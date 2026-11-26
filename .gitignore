@@ -1,14 +1,52 @@
+# ---- build output ----
 build/
 dist/
+out/
 __pycache__/
 *.pyc
 .DS_Store
-*.pem.key
+*.apk
+*.odex
+
+# ---- private material: never published ----
+# AI assistant notes and settings, signing keys, internal notes
+CLAUDE.md
+**/CLAUDE.md
+.claude/
 keys/
-# ccNC fonts and artwork (not redistributed in source)
-ccnc-common/assets/
-ccnc-common/fonts/
+*.keystore
+*.jks
+*.pem
+*.pem.key
+project_update.md
+# car sessions, snapshots, old release zips, screenshots, roadmap (private/), and the themes repo (its own git repo)
+private/
+ccnc-themes/
+# ccNC fonts, artwork and videos (Hyundai / Kia's), and firmware files from a unit
+**/fonts/
+**/assets/
+**/assets-*/
+**/video/
 *.ttf
 *.otf
-*.odex
-*.apk
+*.mp4
+*.png
+*.jpg
+*.jpeg
+*.webp
+!docs/screenshots/*.png
+!ccnc-themekit/template/*.png
+ccnc-home/apps/
+ccnc-home/preview/
+ccnc-home/screenshots/
+car-check-*/
+ccnc-*/files/
+# theme packs and store output live in the ccnc-themes repo
+ccnc-themekit/packs/
+ccnc-themekit/store/out/
+# LivePatch drafts and notes from before the 2.0 package
+livepatch/packages/
+livepatch/hmgapi-alt/
+livepatch/LIVEPATCH_PLAN.md
+livepatch/mkpackages.sh
+ccnc-verify-*/

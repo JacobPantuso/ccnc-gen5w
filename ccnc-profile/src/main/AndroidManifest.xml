@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.ccnc.profile"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="2"
+    android:versionName="1.1">
 
     <uses-permission android:name="android.permission.GET_TASKS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="com.hkmc.permission.AUTOMOTIVE_STATE" />
 
     <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <!-- profile photos from a USB stick -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <application android:name="dev.ccnc.common.CcncApp"
         android:label="Profile"
         android:icon="@drawable/ic_launcher"
@@ -28,5 +30,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Photos and ccNC profile settings for the other ccNC apps (read-only; see ProfileProvider). -->
+        <provider
+            android:name=".ProfileProvider"
+            android:authorities="dev.ccnc.profile"
+            android:exported="true" />
     </application>
 </manifest>

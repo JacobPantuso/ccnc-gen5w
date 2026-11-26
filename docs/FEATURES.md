@@ -19,8 +19,13 @@ The welcome page shows a large clock, a greeting, the weather and what's playing
 
 ![App pages](screenshots/home.png)
 
-Swipe for your apps as ccNC cards. Long-press to rearrange, hide or stack cards. The bottom bar has back, home
-and a now-playing strip on every ccNC screen.
+Swipe for your apps as ccNC cards. Long-press a card for edit mode: drag cards to rearrange them, hold one over
+another to stack the two, tap **−** to hide one. The edit-mode toolbar also has **Hidden Apps** (show hidden ones
+again), **Hide/Show Welcome** and **Reset Layout**. Apps you install yourself (from a file manager, HMG-API and so on)
+get a card too. Stock apps that a ccNC app replaces (Phone, Radio, Climate, EV and so on) are hidden while the ccNC
+version is installed; they're still under Hidden Apps.
+
+The bottom bar has back, home and a now-playing strip on every ccNC screen.
 
 ## Climate
 

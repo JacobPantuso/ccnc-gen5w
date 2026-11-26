@@ -1,4 +1,4 @@
-; ccNC for Gen5W (LivePatch). DRAFT / UNTESTED ON A HEAD UNIT until @NEMESIS_MIN@ is out and verified.
+; ccNC for Gen5W (LivePatch). Apps go in at preinstall, before NEMESIS commits the patches (scripts/pre.sh).
 [nemesis]
 version=1.2
 id=ccnc.gen5w
@@ -20,10 +20,13 @@ path=bin/open.sh
 uid=root
 
 ; Each step finds its code by stable class names / strings, not by firmware-specific names. On a firmware
-; where a step doesn't fit, its tool leaves the file stock (exit 10) instead of failing the whole install.
+; where a step doesn't fit, its tool leaves the file stock (exit 10) instead of failing the whole install;
+; a tool error (crash, bad file) stops the install before anything is committed.
 ; No stop/restart: all four are read at boot, so they apply with NEMESIS's single restart after the queue.
 
 ; Gen5W volume strip off (ccNC Home shows its own): MicomVolumePanel.onShowVolumeChanged* return at once.
+; Also skips the system's own "AV off" OSD at boot (ModeManagerService.handleAvOff -> showNotification(1000)),
+; which the side-popups step would otherwise cause.
 [patch.1]
 target=/system/framework/automotive-service.odex
 engine=exec
@@ -31,8 +34,8 @@ tool=bin/lp-ccnc
 args=volume
 optional=1
 
-; Gen5W right-screen side popups off: only canShowSSOsd() / WithoutVR() / WithDispOff(); the system's
-; canShowSSOsd(ZZZ) query stays stock (so its "Media off" notice isn't triggered at boot).
+; Gen5W right-screen side popups off: canShowSSOsd(), canShowSSOsd(ZZZ) (also the binder stub's), WithoutVR()
+; and WithDispOff() answer false, so track-change and other side popups don't show.
 [patch.2]
 target=/system/app/RightScreenHome.odex
 engine=exec

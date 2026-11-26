@@ -79,6 +79,12 @@ public final class MainActivity extends Activity implements Media.Source.Listene
         setContentView(root);
     }
 
+    /** The car's MEDIA key (ccNC Home's HardKeyReceiver) opens the source list, like the stock MediaGate. */
+    @Override protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        if (i != null && "dev.ccnc.action.HARD_KEY".equals(i.getAction())) showPlayer(false);
+    }
+
     @Override protected void onStart() { super.onStart(); active.start(this); }
     @Override protected void onStop() { super.onStop(); active.stop(); }
 

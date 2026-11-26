@@ -1,9 +1,9 @@
 #!/system/bin/sh
-# DRAFT / UNTESTED ON A HEAD UNIT.
 # NEMESIS LivePatch exec tool: lp-welcome <in> <out>. Puts the ccNC startup video (Kia or Hyundai, by the car)
 # into a copy of the stock welcome app: every stock Hyundai/Kia res/raw/welcome_* video is replaced; the
 # manifest, resources and META-INF stay byte-for-byte. Exit 0: written; 10: nothing to replace (already ccNC's
-# videos, which are all under 1 MB, or an unknown app), left as it is.
+# videos, which are all under 1 MB, or an unknown app), left as it is; anything else: tool error, install stopped.
+# The video depends on the car's brand (getprop), the one input besides <in>: a unit doesn't change brand.
 in="$1"; out="$2"
 # Result for ccNC's developer menu (best effort): /data/ccnc/livepatch/<step> = applied | unsupported
 mark() {
@@ -13,6 +13,17 @@ mark() {
 }
 [ -s files/patch.jar ] || { echo "lp-welcome: missing files/patch.jar"; exit 1; }
 [ -r "$in" ] || { echo "lp-welcome: cannot read $in"; exit 1; }
+# Runs the patcher with dalvikvm (as lp-ccnc does), not app_process: NEMESIS and HMG-API both wrap app_process.
+D=$PWD/lpw-dalvik
+mkdir -p "$D/dalvik-cache" || { echo "lp-welcome: cannot make $D"; exit 1; }
+if [ -z "$BOOTCLASSPATH" ]; then
+    while read a b c; do
+        [ "$a" = export ] && [ "$b" = BOOTCLASSPATH ] && BOOTCLASSPATH="$c"
+    done < /init.environ.rc
+fi
+[ -n "$BOOTCLASSPATH" ] || { echo "lp-welcome: no BOOTCLASSPATH"; exit 1; }
+export BOOTCLASSPATH ANDROID_DATA="$D" ANDROID_ROOT=/system
+patcher() { /system/bin/dalvikvm -Xmx96m -cp files/patch.jar dev.ccnc.welcome.Patch "$@"; }
 is_kia() {
     case "$(getprop ro.build.product)" in CVEV*) return 0;; CEEV*|NEEV*) return 1;; esac
     case "$(getprop ro.product.brand)" in *kia*|*kmc) return 0;; esac
@@ -26,7 +37,12 @@ is_kia && [ -f files/welcome_kia.mp4 ] && V=files/welcome_kia.mp4
 size_of() { set -- $(ls -l "$1" 2>/dev/null); echo "$4"; }
 mine="$(size_of files/welcome_hyundai.mp4) $(size_of files/welcome_kia.mp4)"
 real=0; ours=0; args=""
-app_process -Djava.class.path=files/patch.jar /system/bin dev.ccnc.welcome.Patch list "$in" > "$PWD/lp-welcome.list" 2>/dev/null
+patcher list "$in" > "$PWD/lp-welcome.list" 2>/dev/null
+lrc=$?
+if [ $lrc -ne 0 ]; then
+    rm -rf "$PWD/lp-welcome.list" "$D"; mark welcome error
+    echo "lp-welcome: couldn't read $in (tool error $lrc); install stopped, nothing changed"; exit 1
+fi
 while read size name; do
     case "$name" in
     res/raw/welcome_hyundai*.mp4|res/raw/welcome_kia*.mp4)
@@ -35,13 +51,15 @@ while read size name; do
     esac
 done < "$PWD/lp-welcome.list"
 rm -f "$PWD/lp-welcome.list"
+[ $real -gt 0 ] || rm -rf "$D"
 [ $real -eq 0 ] && [ $ours -gt 0 ] && { mark welcome applied; echo "lp-welcome: already ccNC's video"; exit 10; }
 [ $real -gt 0 ] || { mark welcome unsupported; echo "lp-welcome: no stock welcome video in $in; left as it is"; exit 10; }
 rm -f "$out"
-app_process -Djava.class.path=files/patch.jar /system/bin dev.ccnc.welcome.Patch "$in" "$out" $args >/dev/null 2>&1
+patcher "$in" "$out" $args >/dev/null 2>&1
 rc=$?
+rm -rf "$D"
 [ $rc -eq 0 ] && [ -s "$out" ] && { mark welcome applied; echo "lp-welcome: $real video(s) -> ${V#files/}"; exit 0; }
 rm -f "$out"
-mark welcome unsupported
-echo "lp-welcome: couldn't build the patched app (rc $rc); left stock"
-exit 10
+mark welcome error
+echo "lp-welcome: couldn't build the patched app (tool error $rc); install stopped, nothing changed"
+exit 1

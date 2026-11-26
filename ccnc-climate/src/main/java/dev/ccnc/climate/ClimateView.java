@@ -235,8 +235,11 @@ final class ClimateView extends View {
     }
 
     /** One temperature column: up arrow, value, down arrow. */
+    /** Right-hand drive: the driver's controls on the right (Climate.rhd()). */
+    private final boolean rhd = Climate.rhd(getContext());
+
     private void temp(Canvas c, final boolean driver) {
-        final float l = driver ? 544f : 1258f, t = 153f;
+        final float l = (driver != rhd) ? 544f : 1258f, t = 153f;   // the driver's side of the screen
         boolean enabled = driver || s.dual;
         int a = enabled ? 255 : 110;
         float v = driver ? s.driverTemp : (s.dual ? s.passengerTemp : s.driverTemp);
@@ -262,7 +265,7 @@ final class ClimateView extends View {
 
     /** Heat (toggle 02) and vent (toggle 03) for one seat, each 120 x 85 with three level bars on top. */
     private void seatButtons(Canvas c, final boolean driver) {
-        final float x = driver ? 192.5f : 1607.5f;
+        final float x = (driver != rhd) ? 192.5f : 1607.5f;
         seat(c, x, 244f + 115f, driver ? s.driverSeatHeat : s.passengerSeatHeat, true, driver);
         seat(c, x, 244f + 230f, driver ? s.driverSeatVent : s.passengerSeatVent, false, driver);
         if (driver && s.wheelAvail) wheel(c, x, 244f);
@@ -341,8 +344,9 @@ final class ClimateView extends View {
         boolean middle = rl || rr || s.wheelAvail;
 
         // Driver: seat art, then its buttons; passenger mirrored.
-        frontSeat(c, 0, 110f, 430f, true);
-        frontSeat(c, 1, middle ? 1240f : 1010f, 1510f, false);
+        // Right-hand drive: the passenger on the left, the driver on the right.
+        frontSeat(c, rhd ? 1 : 0, 110f, 430f, true, !rhd);
+        frontSeat(c, rhd ? 0 : 1, middle ? 1240f : 1010f, 1510f, false, rhd);
 
         if (middle) {
             img(c, "clm_ic_divider_h", 700f, 120f, 1f, 160);
@@ -362,12 +366,13 @@ final class ClimateView extends View {
     }
 
     /** One front seat: caption, the seat art with its glow, and heat/vent buttons beside it. */
-    private void frontSeat(Canvas c, final int seat, float artX, float btnX, boolean driver) {
+    /** {@code left}: on the left half of the popup (art, then buttons); {@code driver}: the driver's seat. */
+    private void frontSeat(Canvas c, final int seat, float artX, float btnX, boolean left, boolean driver) {
         int h = level(seat, true), v = level(seat, false);
-        String who = driver ? "driver" : "passenger";
+        String who = left ? "driver" : "passenger";   // seat art drawn for that side of the screen
         String art = h > 0 ? "set_bg_" + who + "_heat_0" + Math.min(3, h) : v > 0 ? "set_bg_" + who + "_vent_0" + Math.min(3, v) : "set_bg_" + who + "_seat";
-        float ax = driver ? artX : btnX;   // passenger: art right of its buttons
-        float bx = driver ? btnX : artX;
+        float ax = left ? artX : btnX;   // right half: art right of its buttons
+        float bx = left ? btnX : artX;
         img(c, art, ax, 190f, 300f, 255);
         label(c, driver ? "Driver" : "Passenger", ax + 150f, 140f, 32f, Palette.TEXT, Fonts.SEMIBOLD);
         seatTile(c, bx, 200f, 240f, 150f, seat, true, null);
@@ -426,43 +431,52 @@ final class ClimateView extends View {
         }
     }
 
-    /** Below the divider at y620: back, AUTO, OFF, air-flow preview, A/C, SYNC. */
+    /**
+     * Below the divider at y620: back, AUTO, OFF, air-flow preview, A/C, SYNC. Right-hand drive: the row is mirrored
+     * (mx), so back sits at the right, next to the driver.
+     */
+    private float mx(float x, float w) { return rhd ? 1920f - x - w : x; }
+
     private void bottomBar(Canvas c, int mode) {
         img(c, "clm_ic_divider_w", 0f, 620f, 1920f, 255);
 
-        RectF back = box(20f, 638f, 122f, 74f);
+        float bx = mx(20f, 122f);
+        RectF back = box(bx, 638f, 122f, 74f);
         if (pressed(back)) { fill.setColor(Palette.PRESS); c.drawRoundRect(back, 20f * k, 20f * k, fill); }
-        imgChrome(c, "back", 20f + 21f, 638f - 3f, 80f);
+        imgChrome(c, "back", bx + 21f, 638f - 3f, 80f);
         hit(grow(back, 12f), false, new Runnable() { @Override public void run() { cb.onBack(); } });
 
-        toggle(c, 172f, 637f, "AUTO", s.auto && s.power, new Runnable() { @Override public void run() {
+        toggle(c, mx(172f, 220f), 637f, "AUTO", s.auto && s.power, new Runnable() { @Override public void run() {
             s.auto = !s.auto; s.power = true; if (s.auto) s.blower = Math.max(1, s.blower); } });
 
         boolean off = !s.power || (s.blower == 0 && !s.auto);
-        RectF offBox = box(444f, 637f, 220f, 86f);
-        label(c, "OFF", 444f + 110f, 620f + 35f + 23.5f, 30f, Palette.TEXT, Fonts.REGULAR);
+        float ofx = mx(444f, 220f);
+        RectF offBox = box(ofx, 637f, 220f, 86f);
+        label(c, "OFF", ofx + 110f, 620f + 35f + 23.5f, 30f, Palette.TEXT, Fonts.REGULAR);
         hit(offBox, true, new Runnable() { @Override public void run() { s.auto = false; s.blower = 0; } });
 
         // Seats: opens the seat popup (rear seats and wheel included).
-        RectF seats = box(760f, 637f, 220f, 78f);
+        float sx = mx(760f, 220f);
+        RectF seats = box(sx, 637f, 220f, 78f);
         if (pressed(seats)) { fill.setColor(Palette.PRESS); c.drawRoundRect(seats, 20f * k, 20f * k, fill); }
         boolean anySeat = s.rearLeftHeat + s.rearLeftVent + s.rearRightHeat + s.rearRightVent > 0;
-        img(c, anySeat ? "clm_ic_toggle_02_r_s" : "clm_ic_toggle_02_r", 760f + 75f, 641f, 70f, 255);
+        img(c, anySeat ? "clm_ic_toggle_02_r_s" : "clm_ic_toggle_02_r", sx + 75f, 641f, 70f, 255);
         hit(seats, false, new Runnable() { @Override public void run() { seatPopup = true; } });
 
         // The air-flow preview doubles as the mode popup button.
-        RectF pv = box(1154f, 628f, 186f, 92f);
+        float px = mx(1154f, 186f);
+        RectF pv = box(px, 628f, 186f, 92f);
         if (pressed(pv)) { fill.setColor(Palette.PRESS); c.drawRoundRect(pv, 20f * k, 20f * k, fill); }
-        img(c, "clm_ic_seat_off", 1154f, 628f, 186f, 255);
+        img(c, "clm_ic_seat_off", px, 628f, 186f, 255);
         if (s.modeKnown && s.power) {
-            if (top(mode)) img(c, "clm_ic_defog_off", 1154f, 628f, 186f, 255);
-            if (mid(mode)) img(c, "clm_ic_air_mid_off", 1154f, 628f, 186f, 255);
-            if (bottom(mode)) img(c, "clm_ic_air_bot_off", 1154f, 628f, 186f, 255);
+            if (top(mode)) img(c, "clm_ic_defog_off", px, 628f, 186f, 255);
+            if (mid(mode)) img(c, "clm_ic_air_mid_off", px, 628f, 186f, 255);
+            if (bottom(mode)) img(c, "clm_ic_air_bot_off", px, 628f, 186f, 255);
         }
         if (s.modeKnown) hit(pv, false, new Runnable() { @Override public void run() { popup = !popup; } });
 
-        toggle(c, 1392f, 637f, "A/C", s.ac && s.power, new Runnable() { @Override public void run() { s.ac = !s.ac; } });
-        toggle(c, 1658f, 637f, "SYNC", !s.dual, new Runnable() { @Override public void run() {
+        toggle(c, mx(1392f, 220f), 637f, "A/C", s.ac && s.power, new Runnable() { @Override public void run() { s.ac = !s.ac; } });
+        toggle(c, mx(1658f, 220f), 637f, "SYNC", !s.dual, new Runnable() { @Override public void run() {
             s.dual = !s.dual; if (!s.dual) s.passengerTemp = s.driverTemp; } });
     }
 

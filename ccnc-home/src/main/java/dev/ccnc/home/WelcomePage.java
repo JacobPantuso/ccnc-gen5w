@@ -24,15 +24,29 @@ import java.util.regex.Pattern;
 
 /**
  * First home page, like ccNC's widget page: a greeting, the time and date large on the
- * left, and two widgets on the right, the weather and the connected phone. Tapping a
- * widget opens it; the app cards follow on the next pages.
+ * left, and two cards on the right. Each card shows what the owner chose (long-press a card):
+ *   weather       the weather
+ *   phone         the connected phone and what it is playing (CarPlay / Android Auto / Bluetooth)
+ *   ev            battery level and range
+ *   app:<key>     any app: its icon and name
+ * Default: weather, phone. Tapping a card opens it; the app cards follow on the next pages.
  */
 final class WelcomePage extends View {
 
     interface Listener {
-        void onWeatherTapped();
-        void onPhoneTapped();
+        void onSlotTapped(int slot, String kind);
+        void onSlotLongPressed(int slot);
     }
+
+    /** What each card shows (see the class comment). */
+    final String[] slots = {"weather", "phone"};
+    // EV card
+    private int evSoc = -1, evRange = -1;
+    private boolean evKm = true;
+    // App cards
+    private final Bitmap[] appArt = new Bitmap[2];
+    private final Drawable[] appIcon = new Drawable[2];
+    private final String[] appLabel = {"", ""};
 
     private final float dp;
     private final Listener listener;
@@ -47,10 +61,20 @@ final class WelcomePage extends View {
     private final Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint press = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bmp = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final RectF weatherBox = new RectF(), phoneBox = new RectF(), tmp = new RectF();
+    private final RectF[] boxes = {new RectF(), new RectF()};
+    private final RectF tmp = new RectF();
     private Theme shaded;
     private String driver; // active user profile's name, if it has a real one
-    private int pressed; // 0 none, 1 weather, 2 phone
+    private int pressed; // 0 none, 1 first card, 2 second card
+    private boolean longFired;
+    private final Runnable longPress = new Runnable() { @Override public void run() {
+        if (pressed == 0) return;
+        int p = pressed;
+        longFired = true;
+        pressed = 0;
+        invalidate();
+        listener.onSlotLongPressed(p - 1);
+    } };
 
     // Weather widget
     private Bitmap weatherIcon;
@@ -106,6 +130,14 @@ final class WelcomePage extends View {
         invalidate();
     }
 
+    /** Battery % and range for the EV card (-1 = unknown). */
+    void setEv(int soc, int range, boolean km) { evSoc = soc; evRange = range; evKm = km; invalidate(); }
+
+    /** An app card's picture (ccNC art, else the app's own icon) and name. */
+    void setApp(int slot, Bitmap art, Drawable icon, String label) {
+        appArt[slot] = art; appIcon[slot] = icon; appLabel[slot] = nz(label); invalidate();
+    }
+
     /** The active profile's name; the greeting uses it ahead of the phone owner. */
     void setDriver(String name) {
         driver = name;
@@ -125,17 +157,24 @@ final class WelcomePage extends View {
         float x = ev.getX(), y = ev.getY();
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                pressed = weatherBox.contains(x, y) ? 1 : phoneBox.contains(x, y) ? 2 : 0;
+                pressed = boxes[0].contains(x, y) ? 1 : boxes[1].contains(x, y) ? 2 : 0;
+                longFired = false;
+                removeCallbacks(longPress);
+                if (pressed != 0) postDelayed(longPress, android.view.ViewConfiguration.getLongPressTimeout());
                 invalidate();
                 return pressed != 0;
+            case MotionEvent.ACTION_MOVE:
+                if (pressed != 0 && !boxes[pressed - 1].contains(x, y)) { removeCallbacks(longPress); pressed = 0; invalidate(); }
+                return true;
             case MotionEvent.ACTION_UP:
+                removeCallbacks(longPress);
                 int p = pressed;
                 pressed = 0;
                 invalidate();
-                if (p == 1 && weatherBox.contains(x, y)) listener.onWeatherTapped();
-                if (p == 2 && phoneBox.contains(x, y)) listener.onPhoneTapped();
+                if (!longFired && p != 0 && boxes[p - 1].contains(x, y)) listener.onSlotTapped(p - 1, slots[p - 1]);
                 return true;
             case MotionEvent.ACTION_CANCEL:
+                removeCallbacks(longPress);
                 pressed = 0;
                 invalidate();
                 return true;
@@ -155,8 +194,8 @@ final class WelcomePage extends View {
         float gap = 18f * dp;
         float boxW = Math.min(330f * dp, (w * 0.56f - gap) / 2f);
         float right = w - 36f * dp;
-        phoneBox.set(right - boxW, 0, right, h);
-        weatherBox.set(right - 2 * boxW - gap, 0, right - boxW - gap, h);
+        boxes[1].set(right - boxW, 0, right, h);
+        boxes[0].set(right - 2 * boxW - gap, 0, right - boxW - gap, h);
         if (shaded != t) {
             shaded = t;
             card.setShader(new LinearGradient(0, 0, 0, h, t.cardTop, t.cardBottom, Shader.TileMode.CLAMP));
@@ -172,7 +211,7 @@ final class WelcomePage extends View {
         sub.setColor(t.subtitle);
 
         // Left: greeting, clock, date.
-        float leftW = weatherBox.left - side - 24f * dp;
+        float leftW = boxes[0].left - side - 24f * dp;
         Date now = new Date();
         Locale loc = Locale.getDefault();
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
@@ -197,30 +236,84 @@ final class WelcomePage extends View {
         String d = new SimpleDateFormat("EEEE, MMMM d", loc).format(now);
         c.drawText(TextUtils.ellipsize(d, date, leftW, TextUtils.TruncateAt.END).toString(), side, h * 0.82f, date);
 
-        // Weather widget.
-        drawBox(c, weatherBox, pressed == 1);
-        float pad = 26f * dp, avail = weatherBox.width() - 2 * pad;
-        float icon = Math.min(weatherBox.width() * 0.34f, 90f * dp);
+        for (int i = 0; i < 2; i++) {
+            drawBox(c, boxes[i], pressed == i + 1);
+            String k = slots[i];
+            if (k.equals("weather")) drawWeather(c, boxes[i]);
+            else if (k.equals("ev")) drawEv(c, boxes[i]);
+            else if (k.startsWith("app:")) drawApp(c, boxes[i], i);
+            else drawPhone(c, boxes[i]);
+        }
+    }
+
+    private float iconSize(RectF b) { return Math.min(b.width() * 0.34f, 90f * dp); }
+
+    private void drawWeather(Canvas c, RectF b) {
+        float pad = 26f * dp, avail = b.width() - 2 * pad, icon = iconSize(b);
         if (weatherIcon != null) {
-            tmp.set(weatherBox.left + pad, weatherBox.top + pad, weatherBox.left + pad + icon, weatherBox.top + pad + icon);
+            tmp.set(b.left + pad, b.top + pad, b.left + pad + icon, b.top + pad + icon);
             c.drawBitmap(weatherIcon, null, tmp, bmp);
         }
         title.setTextSize(22f * dp);
-        c.drawText("Weather", weatherBox.left + pad, weatherBox.top + pad + icon + 34f * dp, title);
+        c.drawText("Weather", b.left + pad, b.top + pad + icon + 34f * dp, title);
         big.setTextSize(64f * dp);
         String tv = temp.isEmpty() ? "--" : temp;
         fit(big, tv, avail);
-        c.drawText(tv, weatherBox.left + pad, weatherBox.bottom - pad - 52f * dp, big);
+        c.drawText(tv, b.left + pad, b.bottom - pad - 52f * dp, big);
         sub.setTextSize(18f * dp);
-        if (!condition.isEmpty()) line(c, condition, weatherBox.left + pad, weatherBox.bottom - pad - 26f * dp, avail);
-        if (!place.isEmpty()) line(c, place, weatherBox.left + pad, weatherBox.bottom - pad, avail);
+        if (!condition.isEmpty()) line(c, condition, b.left + pad, b.bottom - pad - 26f * dp, avail);
+        if (!place.isEmpty()) line(c, place, b.left + pad, b.bottom - pad, avail);
+    }
 
-        // Phone widget.
-        drawBox(c, phoneBox, pressed == 2);
-        avail = phoneBox.width() - 2 * pad;
+    /** Battery level large, a level bar, and the range. */
+    private void drawEv(Canvas c, RectF b) {
+        float pad = 26f * dp, avail = b.width() - 2 * pad, icon = iconSize(b);
+        Bitmap ic = dev.ccnc.common.Art.icon(getContext(), "ev");
+        if (ic != null) { tmp.set(b.left + pad, b.top + pad, b.left + pad + icon, b.top + pad + icon); c.drawBitmap(ic, null, tmp, bmp); }
+        title.setTextSize(22f * dp);
+        c.drawText("Battery", b.left + pad, b.top + pad + icon + 34f * dp, title);
+        big.setTextSize(64f * dp);
+        String sv = evSoc < 0 ? "--" : evSoc + "%";
+        fit(big, sv, avail);
+        c.drawText(sv, b.left + pad, b.bottom - pad - 52f * dp, big);
+        // level bar
+        float by = b.bottom - pad - 40f * dp;
+        tmp.set(b.left + pad, by, b.right - pad, by + 6f * dp);
+        c.drawRoundRect(tmp, 3f * dp, 3f * dp, press);
+        if (evSoc >= 0) {
+            Paint f = new Paint(Paint.ANTI_ALIAS_FLAG);
+            f.setColor(Theme.current.accent());
+            tmp.set(b.left + pad, by, b.left + pad + (b.width() - 2 * pad) * Math.min(100, evSoc) / 100f, by + 6f * dp);
+            c.drawRoundRect(tmp, 3f * dp, 3f * dp, f);
+        }
+        sub.setTextSize(18f * dp);
+        line(c, evRange < 0 ? "Range --" : "Range " + evRange + (evKm ? " km" : " mi"), b.left + pad, b.bottom - pad, avail);
+    }
+
+    /** Any app: its picture and name. */
+    private void drawApp(Canvas c, RectF b, int i) {
+        float pad = 26f * dp, avail = b.width() - 2 * pad, icon = Math.min(b.width() * 0.42f, 110f * dp);
+        float cx = b.centerX(), cy = b.top + b.height() * 0.42f;
+        if (appArt[i] != null) {
+            tmp.set(cx - icon / 2f, cy - icon / 2f, cx + icon / 2f, cy + icon / 2f);
+            c.drawBitmap(appArt[i], null, tmp, bmp);
+        } else if (appIcon[i] != null) {
+            appIcon[i].setBounds((int) (cx - icon / 2f), (int) (cy - icon / 2f), (int) (cx + icon / 2f), (int) (cy + icon / 2f));
+            appIcon[i].draw(c);
+        }
+        title.setTextSize(26f * dp);
+        String l = appLabel[i].isEmpty() ? "App" : appLabel[i];
+        fit(title, l, avail);
+        title.setTextAlign(Paint.Align.CENTER);
+        c.drawText(TextUtils.ellipsize(l, title, avail, TextUtils.TruncateAt.END).toString(), cx, b.bottom - pad - 10f * dp, title);
+        title.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawPhone(Canvas c, RectF phoneBox) {
+        float pad = 26f * dp, avail = phoneBox.width() - 2 * pad, icon = iconSize(phoneBox);
         float lx = phoneBox.left + pad, ly = phoneBox.top + pad;
         if (npTitle != null && (phoneLogo != null || phoneArt != null)) {
-            drawNowPlaying(c, lx, ly, avail, pad);
+            drawNowPlaying(c, phoneBox, lx, ly, avail, pad);
             return;
         }
         if (phoneLogo != null) {
@@ -246,7 +339,7 @@ final class WelcomePage extends View {
     }
 
     /** Cover (or the phone's logo) on top, then the track and artist, then who it is playing from. */
-    private void drawNowPlaying(Canvas c, float lx, float ly, float avail, float pad) {
+    private void drawNowPlaying(Canvas c, RectF phoneBox, float lx, float ly, float avail, float pad) {
         float art = Math.min(avail, phoneBox.height() * 0.46f);
         float rad = 12f * dp;
         tmp.set(lx, ly, lx + art, ly + art);

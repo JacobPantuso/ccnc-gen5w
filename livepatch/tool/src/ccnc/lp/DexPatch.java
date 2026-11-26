@@ -1,17 +1,18 @@
 /*
- * DRAFT / UNTESTED ON A HEAD UNIT.
+ * ccnc-lp: name-based odex patcher for NEMESIS LivePatch's `exec` engine (bin/lp-ccnc runs it).
  *
- * ccnc-lp: name-based odex patcher for NEMESIS LivePatch's `exec` engine.
- *
- *   DexPatch <mode> <in.odex> <out.odex>
- *   DexPatch check <mode> <in.odex>        (exit 0 patchable, 10 already patched, 1 no fit)
+ *   DexPatch <mode> <in.odex> <out.odex>   exit 0 written, 10 already patched, 1 doesn't fit this build
+ *                                          (nothing written), 3 tool error (bad file, crash, patch didn't take)
+ *   DexPatch check <mode> <in.odex>        exit 0 patchable, 10 already patched, 1 doesn't fit, 3 error
  *
  * modes:
  *   volume   Lcom/hkmc/micom/MicomVolumePanel; onShowVolumeChanged(..)V and onShowVolumeChangedNew(..)V
- *            -> insns[0] = return-void
+ *            -> insns[0] = return-void; and ModeManagerService.handleAvOff's AV off OSD (showNotification(1000)
+ *            after "show AV off OSD") -> nops, when that shape is there (else left as it is)
  *   sideosd  every class under Lcom/mobis/splitscreen/right/ that declares canShowSSOsd()Z,
- *            canShowSSOsdWithoutVR()Z or canShowSSOsdWithDispOff()Z -> "const/4 v0, 0; return v0".
- *            canShowSSOsd(ZZZ)Z (the binder entry ModeManagerService asks at boot) stays stock.
+ *            canShowSSOsd(ZZZ)Z (also the binder stub's), canShowSSOsdWithoutVR()Z or canShowSSOsdWithDispOff()Z
+ *            -> "const/4 v0, 0; return v0". (ZZZ) has to go too: track-change popups ask through it. The
+ *            system's own AV off OSD that this causes at boot is removed by the volume step.
  *   climate  every launch site under Lcom/hkmc/telematics/service/apps/climate/ of the shape
  *              new-instance vA, Intent; invoke-direct {vA}, Intent.<init>()V;
  *              const-string vB, "<pkg>"; const-string vC, "<pkg>.activities.(NewClimateControl|SeatHeatVentPopup)";
@@ -23,11 +24,12 @@
  *
  * Classes and methods are found by stable names, string constants and code shape, never by the
  * obfuscated names (ClimateManager.aa/mD, RightScreenHome k/r), so one tool fits any firmware where
- * the shapes hold. Anything that does not fit exactly -> exit 1 and nothing is written (LivePatch
- * then refuses the install with the last printed line as the reason, the unit stays stock).
+ * the shapes hold. Anything that does not fit exactly -> exit 1 and nothing is written (bin/lp-ccnc then
+ * leaves that file stock and the rest of the package installs).
  *
  * The output depends only on the input bytes and the mode (LivePatch rule). Only code units inside
- * existing methods change, plus the dex checksum and SHA-1 signature; odex deps/opt data untouched.
+ * existing methods change, plus the dex adler32 checksum. The SHA-1 signature is kept (it is the dex's
+ * identity in odex dependency lists); odex deps/opt data untouched.
  * Plain Java 7, no libraries, so it runs under the unit's dalvikvm (see bin/lp-ccnc).
  */
 package ccnc.lp;
@@ -44,7 +46,7 @@ import java.util.List;
 import java.util.zip.Adler32;
 
 public final class DexPatch {
-    static final int PATCHABLE = 0, DONE = 10, NOFIT = 1;
+    static final int PATCHABLE = 0, DONE = 10, NOFIT = 1, ERROR = 3;
 
     byte[] b;
     int base;           // dex start inside the odex (0 for a plain dex)
@@ -69,16 +71,16 @@ public final class DexPatch {
                 FileOutputStream o = new FileOutputStream(a[2]);
                 try { o.write(d.b); } finally { o.close(); }
                 DexPatch v = new DexPatch(read(new File(a[2])));     // re-read the output: must now be "done"
-                if (v.run(a[0], false) != DONE) { new File(a[2]).delete(); fail("patch did not take"); }
+                if (v.run(a[0], false) != DONE) { new File(a[2]).delete(); throw new IllegalStateException("patch did not take"); }
                 System.out.println(a[0] + ": patched");
             }
             System.exit(rc);
-        } catch (Fail f) {
+        } catch (Fail f) {                       // the file is fine but this build doesn't have the shape
             System.out.println(f.getMessage());
-            System.exit(1);
-        } catch (Throwable t) {
-            System.out.println("ccnc-lp: " + t);
-            System.exit(1);
+            System.exit(NOFIT);
+        } catch (Throwable t) {                  // bad/truncated file, crash, or the patch didn't verify
+            System.out.println("ccnc-lp: error: " + t);
+            System.exit(ERROR);
         }
     }
 
@@ -101,14 +103,49 @@ public final class DexPatch {
                 ms.add(m);
         }
         if (ms.size() < 1) throw new Fail("volume: no onShowVolumeChanged* method");
-        int done = 0;
+        int osd = avOffOsd(write);   // 1 already, 0 patched/patchable, -1 not on this build (left as it is)
+        int done = osd == 0 ? -1 : 0;
         for (int[] m : ms) {
             int insns = m[2] + 16;
             if (u2(insns) == 0x000e) { done++; continue; }
             if (write) p2(insns, 0x000e);
             say("volume: " + methName(m[0]) + protoStr(m[0]) + (write ? " -> return-void" : " patchable"));
         }
+        if (osd < 0) say("volume: no AV off OSD call found on this build; left as it is");
         return done == ms.size() ? DONE : PATCHABLE;
+    }
+
+    /**
+     * The system's own "AV off" OSD at boot (ModeManagerService.handleAvOff: Slog "show AV off OSD", then
+     * this.showNotification(1000)). It is shown when the right screen answers canShowSSOsd=false, which sideosd
+     * makes it do. Found by shape: after that string, "const/16 vX, #1000" then "invoke-virtual-quick {this, vX}";
+     * the invoke becomes three nops. Returns 1 if already nops, 0 if patched (or patchable), -1 if not found.
+     */
+    int avOffOsd(boolean write) {
+        int cls = classDef("Lcom/hkmc/micom/ModeManagerService;");
+        int str = stringIdx("show AV off OSD");
+        if (cls < 0 || str < 0) return -1;
+        for (int[] m : methods(cls)) {
+            if (!methName(m[0]).equals("handleAvOff") || m[2] == 0) continue;
+            int regs = u2(m[2]), ins = u2(m[2] + 2), self = regs - ins, insns = m[2] + 16, n = u4(m[2] + 12);
+            for (int pc = 0; pc < n; pc += width(insns, pc, n)) {
+                int w0 = u2(insns + pc * 2);
+                if ((w0 & 0xff) != 0x1a || u2(insns + pc * 2 + 2) != str) continue;
+                for (int q = pc, k = 0; q < n && k < 12; q += width(insns, q, n), k++) {
+                    int c = u2(insns + q * 2);
+                    if ((c & 0xff) != 0x13 || u2(insns + q * 2 + 2) != 1000) continue;
+                    int vx = c >> 8, at = q + 2;
+                    if (u2(insns + at * 2) == 0 && u2(insns + at * 2 + 2) == 0 && u2(insns + at * 2 + 4) == 0) return 1;
+                    int i0 = u2(insns + at * 2), args = u2(insns + at * 2 + 4);
+                    if ((i0 & 0xff) != 0xf8 || (i0 >> 12) != 2 || (args & 0xf) != self || ((args >> 4) & 0xf) != vx) return -1;
+                    if (write) { p2(insns + at * 2, 0); p2(insns + at * 2 + 2, 0); p2(insns + at * 2 + 4, 0); }
+                    say("volume: ModeManagerService.handleAvOff AV off OSD (showNotification 1000) -> " + (write ? "skipped" : "patchable"));
+                    return 0;
+                }
+                return -1;
+            }
+        }
+        return -1;
     }
 
     int sideosd(boolean write) {
@@ -119,9 +156,10 @@ public final class DexPatch {
             for (int[] m : methods(c)) {
                 String n = methName(m[0]);
                 if (!(n.equals("canShowSSOsd") || n.equals("canShowSSOsdWithoutVR") || n.equals("canShowSSOsdWithDispOff"))) continue;
-                if (!protoStr(m[0]).equals("()Z") || m[2] == 0) continue;     // (ZZZ)Z stays stock on purpose
+                String pr = protoStr(m[0]);
+                if (m[2] == 0 || !(pr.equals("()Z") || (n.equals("canShowSSOsd") && pr.equals("(ZZZ)Z")))) continue;
                 if (u2(m[2]) < 1 || u4(m[2] + 12) < 2) throw new Fail("sideosd: " + n + " too small to stub");
-                if (n.equals("canShowSSOsd")) plain = true;
+                if (n.equals("canShowSSOsd") && pr.equals("()Z")) plain = true;
                 ms.add(m);
             }
         }
@@ -131,7 +169,7 @@ public final class DexPatch {
             int insns = m[2] + 16;
             if (u2(insns) == 0x0012 && u2(insns + 2) == 0x000f) { done++; continue; }
             if (write) { p2(insns, 0x0012); p2(insns + 2, 0x000f); }
-            say("sideosd: " + typeName(methClass(m[0])) + "->" + methName(m[0]) + "()Z" + (write ? " -> false" : " patchable"));
+            say("sideosd: " + typeName(methClass(m[0])) + "->" + methName(m[0]) + protoStr(m[0]) + (write ? " -> false" : " patchable"));
         }
         return done == ms.size() ? DONE : PATCHABLE;
     }
@@ -170,6 +208,9 @@ public final class DexPatch {
             }
         }
         if (todo + done == 0) throw new Fail("climate: no explicit launch of NewClimateControl/SeatHeatVentPopup found");
+        // Both launchers or none: one alone would leave one button on the stock screen.
+        for (int k = 0; k < seen.length; k++)
+            if (seen[k] == 0) throw new Fail("climate: no launch of " + CLIMATE_TARGETS[k] + " found; left stock");
         return todo == 0 ? DONE : PATCHABLE;
     }
 
@@ -275,6 +316,8 @@ public final class DexPatch {
         else throw new Fail("ccnc-lp: not an odex/dex file");
         if (!(b[base] == 'd' && b[base + 1] == 'e' && b[base + 2] == 'x')) throw new Fail("ccnc-lp: bad dex header");
         fileSize = u4(32);
+        if (fileSize < 112 || base < 0 || (long) base + fileSize > f.length)
+            throw new IllegalArgumentException("dex size " + fileSize + " at " + base + " doesn't fit the file (" + f.length + " bytes)");
         strN = u4(56); strOff = u4(60); typeN = u4(64); typeOff = u4(68); protoN = u4(72); protoOff = u4(76);
         methN = u4(88); methOff = u4(92); cdefN = u4(96); cdefOff = u4(100);
     }

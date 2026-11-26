@@ -1,25 +1,51 @@
 #!/system/bin/sh
-# Installs the ccNC apps (pm; /system untouched), turns on Home's notification listener, installs the developer-menu
-# tools, and keeps HMG-API's hooks on with the volume LivePatch (stock copy of automotive-service.odex for its
-# md5 check). LivePatch itself mounts the patched files at the next restart.
+# After NEMESIS has committed the install (the apps went in at preinstall): Home's notification listener, the
+# developer-menu tools, the developer menu's step records, and HMG-API's stock copies. Problems here are reported
+# but don't fail the install: everything that matters is already in place. LivePatch mounts the patched files at
+# the next restart.
 . ./scripts/common.sh
-wait_android || { log "FAIL: Android didn't finish booting; install again once the home screen is up."; exit 1; }
-bad=""
-for a in $APPS; do
-    f=${a%%:*}
-    if pm_install "$f"; then log "installed $f"; else log "FAIL: $f"; bad="$bad $f"; fi
-done
-[ -n "$bad" ] && { toast "ccNC couldn't install:$bad (see NEMESIS's log)"; exit 1; }
 listener_on && log "notification listener on"
 [ -f ./scripts/devtools.sh ] && sh ./scripts/devtools.sh
-# HMG-API reads framework files by path, so after the restart it sees LivePatch's patched copy and would turn every
-# hook off (wireless CarPlay with it) unless a stock copy is at /data/hmgapi/stock/<path>. The stock file is still
-# in view until the restart, so copy it now (not if something is already mounted over it).
-if [ -d /data/hmgapi ] && [ ! -f "$HS" ] && ! grep -q " $VOL " /proc/mounts; then
-    mkdir -p "${HS%/*}" && cp "$VOL" "$HS.new" && chmod 644 "$HS.new" &&
-        [ "$(md5_of "$HS.new")" = "$(md5_of "$VOL")" ] && mv "$HS.new" "$HS" && md5_of "$HS" > "$HS_MARK" &&
-        log "HMG-API stock copy placed"
-    rm -f "$HS.new"
+
+# Step records for the developer menu: a step's tool writes its own, but when NEMESIS reuses a cached result the
+# tool doesn't run. Fill in a missing one from LivePatch's status (built or mounted = applied).
+st=$(nemesis livepatch status 2>/dev/null)
+mkdir -p "$CCNC_DIR/livepatch" && chmod 755 "$CCNC_DIR" "$CCNC_DIR/livepatch"
+for s in $STEPS; do
+    n=${s%%:*}; t=${s#*:}
+    [ -f "$CCNC_DIR/livepatch/$n" ] && continue
+    case "$st" in
+        *"$t mounted"*|*"$t farmed"*) echo applied > "$CCNC_DIR/livepatch/$n" ;;
+        *) echo unsupported > "$CCNC_DIR/livepatch/$n" ;;
+    esac
+    chmod 644 "$CCNC_DIR/livepatch/$n"
+done
+
+# HMG-API reads these files by path, so it sees LivePatch's patched copies and would turn hooks off (all of them for
+# the framework file, wireless CarPlay with it) unless the stock file is at /data/hmgapi/stock/<path>. The stock bytes
+# come from `nemesis livepatch stock` (also while a patched copy is mounted), else from the file if nothing is mounted
+# over it. A copy we placed (recorded in $HS_MARKS) is refreshed when the stock file changed (a firmware update); an
+# identical unrecorded copy (2.0.0/2.0.1 didn't record theirs) is adopted unless HMG-API itself owns that file; any
+# other copy is HMG-API's and left alone.
+if [ -d /data/hmgapi ]; then
+    mkdir -p "$HS_MARKS"
+    for f in $HMG_FILES; do
+        hs=/data/hmgapi/stock$f; m=$HS_MARKS/${f##*/}.md5; tmp=/data/local/tmp/ccnc-stock.$$
+        rm -f "$tmp"
+        nemesis livepatch stock "$f" "$tmp" >/dev/null 2>&1 || { ! grep -q " $f " /proc/mounts && cp "$f" "$tmp"; }
+        want=$(md5_of "$tmp")
+        if [ -z "$want" ]; then log "WARNING: no stock copy of $f for HMG-API"; rm -f "$tmp"; continue; fi
+        if [ ! -f "$hs" ]; then
+            mkdir -p "${hs%/*}" && chmod 644 "$tmp" && mv "$tmp" "$hs" && echo "$want" > "$m" && log "HMG-API stock copy: $f"
+        elif [ "$(md5_of "$hs")" = "$want" ]; then
+            if [ ! -f "$m" ] && ! grep -q "\"$f\"" /data/hmgapi/state/files.json 2>/dev/null; then echo "$want" > "$m"; log "HMG-API stock copy adopted: $f"; fi
+        elif [ -f "$m" ]; then
+            chmod 644 "$tmp" && mv "$tmp" "$hs" && echo "$want" > "$m" && log "HMG-API stock copy refreshed (stock changed): $f"
+        else
+            log "HMG-API keeps its own copy of $f; left as it is"
+        fi
+        rm -f "$tmp"
+    done
 fi
 toast "ccNC installed. Restart the head unit to finish, then press Home and choose ccNC Home."
 exit 0

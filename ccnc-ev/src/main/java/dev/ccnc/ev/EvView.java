@@ -115,7 +115,7 @@ final class EvView extends View {
         float ox = (getWidth() / k - 1920f) / 2f;
         c.save();
         c.translate(X(ox), 0);
-        int soc = s.soc > 100 && s.soc <= 200 ? s.soc / 2 : s.soc; // car reports 0.5 % steps
+        int soc = s.soc; // already in % (EvData.half)
         if (tab == 0) home(c, soc);
         else if (tab == 1) energy(c);
         else charging(c);
@@ -269,7 +269,7 @@ final class EvView extends View {
 
     /** q056 slider rows: 1080 x 40 bar (track #19242e, target #364350, current = highlight), title, current % and "(About N km)". */
     private void charging(Canvas c) {
-        int soc = s.soc > 100 && s.soc <= 200 ? s.soc / 2 : s.soc;
+        int soc = s.soc; // already in % (EvData.half)
         String[] title = {"AC Charger", "DC Charger"};
         int[] target = {s.targetSlow, s.targetQuick};
         int[] dte = {s.dteSlow, s.dteQuick};

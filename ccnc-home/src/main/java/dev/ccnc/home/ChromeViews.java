@@ -76,11 +76,13 @@ final class ChromeViews {
         private final Paint handle = new Paint(Paint.ANTI_ALIAS_FLAG);
         private float clockAlpha = 1f;
 
-        /** The clock (right end): 7 taps open ccNC's developer menu; the bar's long-press (themes) still works. */
+        /** The clock (right end): 7 taps open ccNC's developer menu. */
         @Override public boolean onTouchEvent(android.view.MotionEvent e) {
             if (e.getActionMasked() == android.view.MotionEvent.ACTION_UP && e.getX() > getWidth() - 170 * dp
                     && getContext() instanceof android.app.Activity)
                 dev.ccnc.common.DevMenu.tap((android.app.Activity) getContext());
+            // Take the touch from its start so the tap's ACTION_UP arrives (7 taps on the clock: developer menu).
+            if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) return true;
             return super.onTouchEvent(e);
         }
 

@@ -167,7 +167,8 @@ public final class VolumeOsdService extends Service {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                     | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
-            lp.gravity = Gravity.BOTTOM | Gravity.LEFT;
+            // On the driver's side: bottom left, or bottom right on a right-hand-drive car (where back/home are).
+            lp.gravity = Gravity.BOTTOM | (dev.ccnc.common.Drive.rhd(this) ? Gravity.RIGHT : Gravity.LEFT);
             lp.y = 0;
             lp.windowAnimations = R.style.OsdNoAnim;   // no fade-in: the stock strip must never show through
             view.active = false;

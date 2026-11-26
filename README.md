@@ -59,7 +59,7 @@ See every app in **[Features](docs/FEATURES.md)**.
 
 1. Make sure your head unit has **NEMESIS with LivePatch** (1.17.1 or newer).
 2. In **NEMESIS Manager > Package Store**, install **ccNC for Gen5W**, or install it from a USB stick with
-   the zip from the [latest release](https://github.com/JacobPantuso/ccnc-gen5w/releases/latest).
+   the zip from the [releases page](https://github.com/JacobPantuso/ccnc-gen5w/releases).
 3. Restart the head unit, press **Home** and choose **ccNC Home > Always**.
 
 Full steps, updating from 1.x and uninstalling: **[Install guide](docs/INSTALL.md)**.
@@ -71,9 +71,10 @@ ccNC is a hobby project, built carefully and tested on a real car, but it modifi
 
 | | |
 |---|---|
-| Apps | Added alongside the stock apps; removed on uninstall. |
+| Apps | Added alongside the stock apps; removed on uninstall (Climate and Home after the restart). |
 | System changes | Made by LivePatch, never written to `/system`; stock again after uninstall and a restart. |
 | Unsupported firmware | Each change checks it fits your firmware and leaves the file stock if it doesn't. |
+| A failed install | The apps go in first; if one fails, nothing is changed. |
 | If the unit doesn't start | NEMESIS starts stock automatically after failed boots (safe mode). |
 
 Install while parked. Don't use the screen while driving. Use at your own risk.

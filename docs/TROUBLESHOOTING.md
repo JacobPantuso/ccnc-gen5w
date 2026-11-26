@@ -11,12 +11,14 @@
 | Climate/seat buttons still open the stock screens | Restart the head unit after installing. Then check the [developer menu](DEVELOPER-MENU.md): *Climate buttons* should say **Active**. |
 | A system change says *Not supported on this firmware* | Your firmware's code is different; that change was skipped safely. Everything else works. |
 | A system change says *Installed, restart to apply* | Restart the head unit. If it stays, NEMESIS may be in safe mode: check NEMESIS Manager. |
-| Wireless CarPlay stopped after installing | Restart once more. If it persists, run **Run checks** in the developer menu and open an issue with the report. |
+| Wireless CarPlay stopped after installing | Restart once more. If it persists, run **Run Checks** in the developer menu and open an issue with the report. |
 | Theme Store shows no themes | Connect the head unit to Wi-Fi with internet access, then open the store again. |
+| A system change says *Patch tool error* | The patch tool failed on your firmware. Run **Run Checks** and open an issue with the report. |
+| An update failed | Install the package again. Your apps from the previous version stay until the new one installs. |
 | Climate won't change anything | Vehicle control may have been turned off: long-press the top-left corner of Climate (over the home button) and turn it back on. |
 
 ## Reporting a problem
 
-1. Open the [developer menu](DEVELOPER-MENU.md) and choose **Run checks** with a USB stick plugged in.
+1. Open the [developer menu](DEVELOPER-MENU.md) and choose **Run Checks** with a USB stick plugged in (it needs one: the report is saved there).
 2. Open an [issue](https://github.com/JacobPantuso/ccnc-gen5w/issues) with your car, firmware (shown in the
    menu's header) and the `ccNC reports` folder from the stick.

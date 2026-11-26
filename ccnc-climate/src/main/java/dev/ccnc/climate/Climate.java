@@ -7,6 +7,9 @@ package dev.ccnc.climate;
 final class Climate {
 
     /** All temperatures are Celsius in the model; the UI converts for display. */
+    /** Right-hand drive: the driver's temperature and seat controls on the right (see dev.ccnc.common.Drive). */
+    static boolean rhd(android.content.Context c) { return dev.ccnc.common.Drive.rhd(c); }
+
     static final class State implements Cloneable {
         State copy() {
             try { return (State) clone(); } catch (CloneNotSupportedException e) { throw new AssertionError(e); }

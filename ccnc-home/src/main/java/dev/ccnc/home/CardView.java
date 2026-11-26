@@ -292,10 +292,29 @@ final class CardView extends View {
         drawHalf(c, entry, 0, hh, w, r, t, isPressed() && stackDown == 0);
         drawHalf(c, entry.stackBack, hh + gap, hh, w, r, t, isPressed() && stackDown == 1);
         if (editMode) {
+            // The same edit look as a single card: a dim veil (unless it's the one being dragged) and the edit
+            // outline around each half, then ringed badges.
+            Paint outline = new Paint(Paint.ANTI_ALIAS_FLAG);
+            outline.setStyle(Paint.Style.STROKE);
+            outline.setStrokeWidth(2f * dp);
+            outline.setColor(t.light ? 0x66000000 : 0x8CFFFFFF);
+            Paint veil = new Paint(Paint.ANTI_ALIAS_FLAG);
+            veil.setColor(t.light ? 0x59FFFFFF : 0x59000000);
+            for (float top : new float[]{0, hh + gap}) {
+                RectF o = new RectF(0, top, w, top + hh);
+                if (!lifted) c.drawRoundRect(o, r, r, veil);
+                o.inset(dp, dp);
+                c.drawRoundRect(o, r - dp, r - dp, outline);
+            }
             float bx = badgeCx(), by = badgeCy(), br = badgeR();
+            Paint ringP = new Paint(Paint.ANTI_ALIAS_FLAG);
+            ringP.setStyle(Paint.Style.STROKE);
+            ringP.setStrokeWidth(1.6f * dp);
+            ringP.setColor(t.light ? 0x8C000000 : 0xB3FFFFFF);
             Paint badge = new Paint(Paint.ANTI_ALIAS_FLAG);
             badge.setColor(t.light ? 0xD9FFFFFF : 0xD9212B34);
             c.drawCircle(bx, by, br, badge);
+            c.drawCircle(bx, by, br - 0.8f * dp, ringP);
             badge.setColor(t.light ? 0xFF16212A : 0xFFFFFFFF);
             float m = br * 0.42f, th = 2.6f * dp;
             c.drawRect(bx - m, by - th / 2f, bx + m, by + th / 2f, badge);
@@ -307,6 +326,7 @@ final class CardView extends View {
             float bw = br * 0.62f, bh = br * 0.30f, rr = 1.6f * dp;
             c.drawRoundRect(new RectF(ux - bw / 2f, by - bh - 2f * dp, ux + bw / 2f, by - 2f * dp), rr, rr, badge);
             c.drawRoundRect(new RectF(ux - bw / 2f, by + 2f * dp, ux + bw / 2f, by + bh + 2f * dp), rr, rr, badge);
+            c.drawCircle(ux, by, br - 0.8f * dp, ringP);
         }
         drawStackTarget(c);
     }

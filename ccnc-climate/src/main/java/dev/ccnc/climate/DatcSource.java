@@ -45,27 +45,24 @@ final class DatcSource implements Climate.Source {
             if (code == L_TEMP_INFO) {
                 data.enforceInterface("com.hkmc.datc.IDATCListener");
                 // onTemperatureInformation(F,I,F,I,F,I,F,I,F,I,F,I,F,I)
-                float[] f = new float[7];
-                int[] st = new int[7];
+                final float[] f = new float[7];
+                final int[] st = new int[7];
                 for (int i = 0; i < 7; i++) {
                     f[i] = data.readFloat();
                     st[i] = data.readInt();
                 }
-                onTemps(f, st);
+                work(new Runnable() { @Override public void run() { onTemps(f, st); } });
                 return true;
             }
             if (code == L_DATC_STATUS) {
                 data.enforceInterface("com.hkmc.datc.IDATCListener");
-                // DatcStatus parcelable: best-effort field capture for the on-car session.
-                Parcel p = Parcel.obtain();
-                try {
-                    p.appendFrom(data, data.dataPosition(), data.dataAvail());
-                    logDatcStatus(p);
-                } catch (Throwable t) {
-                    Log.w(TAG, "datc status parse failed", t);
-                } finally {
-                    p.recycle();
-                }
+                // DatcStatus parcelable: copied here (binder thread), decoded on the worker.
+                final int n = data.dataAvail() / 4;
+                final int[] cur = new int[n];
+                for (int i = 0; i < n; i++) cur[i] = data.readInt();
+                work(new Runnable() { @Override public void run() {
+                    try { onStatus(cur); } catch (Throwable t) { Log.w(TAG, "datc status parse failed", t); }
+                } });
                 return true;
             }
             try {
@@ -91,19 +88,29 @@ final class DatcSource implements Climate.Source {
     private final Climate.State state = new Climate.State();
     private boolean connected;
 
-    private final android.os.Handler poller = new android.os.Handler(android.os.Looper.getMainLooper());
+    /**
+     * Everything that talks to the car (polling, the climate and seat services, sending changes) runs on this one
+     * worker thread, never on the UI thread: a slow answer from the car must not freeze the screen. Updates go to
+     * the screen on the main thread (emit).
+     */
+    private android.os.HandlerThread workerThread;
+    private android.os.Handler worker;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private int celsiusUnit = Integer.MIN_VALUE;
+    private boolean celsiusCached;
+
+    private void work(Runnable r) { android.os.Handler w = worker; if (w != null) w.post(r); }
     private final java.util.HashMap<Integer, Integer> raw = new java.util.HashMap<Integer, Integer>();
     private boolean frontControl;
     final Usm usm = new Usm();
     private static final String CAL = "ccncCal";
-    private final java.util.HashMap<Integer, Integer> scan = new java.util.HashMap<Integer, Integer>();
     private int[] lastStatus = new int[0];
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
-            if (!connected || listenerCb == null) return;
+            if (!connected || listenerCb == null || worker == null) return;
             readState();
-            poller.postDelayed(this, 1500);
+            worker.postDelayed(this, 1500);
         }
     };
 
@@ -117,12 +124,6 @@ final class DatcSource implements Climate.Source {
         state.wheelAvail = usm.wheelAvailable(); state.wheelHeat = usm.wheelOn();
         state.drvOpt = usm.drvOpt; state.astOpt = usm.astOpt; state.rlOpt = usm.rlOpt; state.rrOpt = usm.rrOpt;
         emit();
-        if (!scan.isEmpty()) return; // one calibration pass; state comes from the DatcStatus parcel
-        for (int id = 0; id <= 0x40; id++) {
-            int v = txInt(T_GET_CLIMATE_INFO, id);
-            scan.put(id, v);
-            Log.i(CAL, "SCAN id=0x" + Integer.toHexString(id) + " " + v);
-        }
     }
 
     /** IDATCService.isUnitCelsius(int tempUnit): the stock app passes DatcStatus.getTempUnit() (field 4). */
@@ -191,7 +192,12 @@ final class DatcSource implements Climate.Source {
      * passed through as bytes to the micom, whose signal table isn't in the firmware, so these stay assumed. Only called when the owner enabled vehicle
      * control: the encodings are unconfirmed on this car and are logged as "SENT" lines.
      */
-    void sendChanges(Climate.State from, Climate.State to) {
+    void sendChanges(Climate.State fromState, Climate.State toState) {
+        final Climate.State from = fromState.copy(), to = toState.copy();
+        work(new Runnable() { @Override public void run() { send(from, to); } });
+    }
+
+    private void send(Climate.State from, Climate.State to) {
         if (from.driverSeatHeat != to.driverSeatHeat || from.driverSeatVent != to.driverSeatVent)
             usm.setDriver(to.driverSeatHeat > 0 ? Usm.stateOf(true, to.driverSeatHeat) : Usm.stateOf(false, to.driverSeatVent));
         if (from.passengerSeatHeat != to.passengerSeatHeat || from.passengerSeatVent != to.passengerSeatVent)
@@ -201,8 +207,7 @@ final class DatcSource implements Climate.Source {
         if (from.rearRightHeat != to.rearRightHeat || from.rearRightVent != to.rearRightVent)
             usm.setRearRight(to.rearRightHeat > 0 ? Usm.stateOf(true, to.rearRightHeat) : Usm.stateOf(false, to.rearRightVent));
         if (from.wheelHeat != to.wheelHeat) {
-            // The wheel warmer is a toggle (press 1, release 0); off the UI thread because of the release delay.
-            new Thread(new Runnable() { @Override public void run() { usm.pressWheel(); } }, "ccncWheel").start();
+            usm.pressWheel(); // a toggle: press 1, release 0 (on the worker thread, like every write)
         }
         if (!frontControl) return;
         if (from.auto != to.auto) control(C_AUTO, to.auto ? 1 : 0);
@@ -222,6 +227,11 @@ final class DatcSource implements Climate.Source {
 
     @Override public void start(Listener l) {
         this.listenerCb = l;
+        if (workerThread == null) {
+            workerThread = new android.os.HandlerThread("ccncDatc");
+            workerThread.start();
+            worker = new android.os.Handler(workerThread.getLooper());
+        }
         try {
             Class<?> sm = Class.forName("android.os.ServiceManager");
             Method get = sm.getMethod("getService", String.class);
@@ -274,7 +284,7 @@ final class DatcSource implements Climate.Source {
             }
             Log.i(TAG, "supportFrontClimateControl=" + frontControl);
             emit();
-            poller.post(poll);
+            worker.post(poll);
         } catch (Throwable t) {
             Log.w(TAG, "DATC bridge failed; demo mode", t);
             connected = false;
@@ -283,8 +293,11 @@ final class DatcSource implements Climate.Source {
     }
 
     @Override public void stop() {
-        poller.removeCallbacks(poll);
         listenerCb = null;
+        if (worker != null) worker.removeCallbacks(poll);       // stop polling; changes already queued are still sent
+        if (workerThread != null) workerThread.quitSafely();
+        workerThread = null;
+        worker = null;
     }
 
     @Override public boolean isVehicle() { return connected; }
@@ -310,11 +323,8 @@ final class DatcSource implements Climate.Source {
     }
 
     /** Whole DatcStatus parcel: idx 0 is the non-null flag, then fields in wire order (the smali field names are not trustworthy). Logs changed indices as ccncCal STATUS. */
-    private void logDatcStatus(Parcel p) {
-        p.setDataPosition(0);
-        int n = p.dataAvail() / 4;
-        int[] cur = new int[n];
-        for (int i = 0; i < n; i++) cur[i] = p.readInt();
+    private void onStatus(int[] cur) {
+        int n = cur.length;
         StringBuilder sb = new StringBuilder();
         if (cur.length != lastStatus.length) sb.append(" len=").append(n);
         for (int i = 0; i < n; i++) {
@@ -350,7 +360,7 @@ final class DatcSource implements Climate.Source {
         state.recirculated = s[5] == 1;
         state.frontDefrost = s[11] == 1;
         state.dual = s[32] != 1;
-        state.celsius = isCelsius(s[4]);
+        if (!celsiusCached || celsiusUnit != s[4]) { celsiusUnit = s[4]; state.celsius = isCelsius(s[4]); celsiusCached = true; }
         state.blower = (blower >= 2 && blower <= 9) ? blower - 1 : 0;
         boolean valid = (mode >= 1 && mode <= 5) || mode == 7 || (mode >= 9 && mode <= 14);
         state.ccMode = valid ? mode : 0;
@@ -360,7 +370,10 @@ final class DatcSource implements Climate.Source {
                 + " sync=" + s[32] + " heat=" + s[60] + " unit=" + s[4] + " driverOnly=" + s[22]);
     }
 
+    /** Hands a copy of the state to the screen, on the main thread. */
     private void emit() {
-        if (listenerCb != null) listenerCb.onClimate(state.copy());
+        if (listenerCb == null) return;
+        final Climate.State c = state.copy();
+        main.post(new Runnable() { @Override public void run() { Listener l = listenerCb; if (l != null) l.onClimate(c); } });
     }
 }

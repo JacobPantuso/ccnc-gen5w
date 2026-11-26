@@ -64,10 +64,10 @@ public final class DevMenu {
      * supported; its tool records the result in /data/ccnc/livepatch/<step> (applied | unsupported).
      */
     private static final String[][] PATCHES = {
-            {"volume", "Volume strip off", "/system/framework/automotive-service.odex", "f426a78f829b935005995b4f998863ca"},
-            {"sideosd", "Side popups off", "/system/app/RightScreenHome.odex", "0b04470678194ab7e5bf626de3738001"},
-            {"climate", "Climate buttons", "/system/app/HKMC_Climate.odex", "364fe54acec3998d06ad53c44e7056d7"},
-            {"welcome", "Startup video", "/system/app/WelcomeGoodbye.apk", ""},
+            {"volume", "Volume Strip Off", "/system/framework/automotive-service.odex", "f426a78f829b935005995b4f998863ca"},
+            {"sideosd", "Side Popups Off", "/system/app/RightScreenHome.odex", "0b04470678194ab7e5bf626de3738001"},
+            {"climate", "Climate Buttons", "/system/app/HKMC_Climate.odex", "364fe54acec3998d06ad53c44e7056d7"},
+            {"welcome", "Startup Video", "/system/app/WelcomeGoodbye.apk", ""},
     };
     private static final String LP_DIR = DIR + "/livepatch";
 
@@ -100,6 +100,7 @@ public final class DevMenu {
         LinearLayout content;
         TextView[] tabs;
         int tab = -1;
+        final long openedAt = SystemClock.uptimeMillis();
         final Runnable cpuTick = new Runnable() { @Override public void run() { if (tab == 1) { cpu(); ui.postDelayed(this, 2000); } } };
 
         Menu(Activity a) {
@@ -110,7 +111,9 @@ public final class DevMenu {
             getWindow().setBackgroundDrawable(new ColorDrawable(0xD9000000));
 
             FrameLayout root = new FrameLayout(a);
-            root.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { dismiss(); } });
+            root.setSoundEffectsEnabled(false);
+            // A tap outside closes it only once it has been open 3 s: fast taps on the clock or the menu land here too.
+            root.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { if (outsideOk(openedAt)) dismiss(); } });
 
             LinearLayout panel = new LinearLayout(a);
             panel.setOrientation(LinearLayout.VERTICAL);
@@ -133,7 +136,7 @@ public final class DevMenu {
             head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
             TextView close = text("✕", 24, Palette.TEXT, Fonts.REGULAR);
             close.setPadding(px(12), 0, px(4), 0);
-            close.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { dismiss(); } });
+            close.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Chrome.beep(Menu.this.a); dismiss(); } });
             head.addView(close);
             panel.addView(head);
 
@@ -142,7 +145,7 @@ public final class DevMenu {
             // Left: menu.
             LinearLayout menu = new LinearLayout(a);
             menu.setOrientation(LinearLayout.VERTICAL);
-            String[] names = {"Status", "CPU usage", "Compatibility", "Run checks", "Reboot"};
+            String[] names = {"Status", "CPU Usage", "Compatibility", "Run Checks", "Reboot"};
             tabs = new TextView[names.length];
             for (int i = 0; i < names.length; i++) {
                 final int idx = i;
@@ -190,6 +193,7 @@ public final class DevMenu {
             t.setTextColor(color);
             t.setTypeface(Fonts.get(a, face));
             t.setIncludeFontPadding(true);
+            t.setSoundEffectsEnabled(false);   // the click sounds through Chrome.beep only (else a double beep)
             return t;
         }
 
@@ -246,7 +250,7 @@ public final class DevMenu {
             return t;
         }
 
-        void button(String s, View.OnClickListener l) {
+        TextView button(String s, final View.OnClickListener l) {
             TextView b = text(s, 18, Palette.TEXT, Fonts.SEMIBOLD);
             b.setGravity(Gravity.CENTER);
             GradientDrawable g = new GradientDrawable();
@@ -254,10 +258,11 @@ public final class DevMenu {
             g.setColor(Palette.alpha(Palette.ACCENT, 0x55));
             b.setBackgroundDrawable(g);
             b.setPadding(px(20), px(12), px(20), px(12));
-            b.setOnClickListener(l);
+            b.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Chrome.beep(a); l.onClick(v); } });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
             lp.topMargin = px(10);
             content.addView(b, lp);
+            return b;
         }
 
         /** Work off the UI thread, then show its result if the same page is still open. */
@@ -281,7 +286,7 @@ public final class DevMenu {
             for (PackageInfo p : ps) row(p.packageName.substring(9), p.versionName, 0);
             row("Theme", themeId(), 0);
             row("Brand", cap(Fonts.brand(a)), 0);
-            heading("System patches");
+            heading("System Patches");
             final TextView[] pv = new TextView[PATCHES.length];
             for (int i = 0; i < PATCHES.length; i++) pv[i] = row(PATCHES[i][1], "checking…", 0);
             heading("Tools");
@@ -301,6 +306,9 @@ public final class DevMenu {
                 long free = (long) s.getAvailableBlocks() * s.getBlockSize(), tot = (long) s.getBlockCount() * s.getBlockSize();
                 row("Storage (/data)", (free >> 20) + " MB free of " + (tot >> 20) + " MB", free < (200L << 20) ? WARN : 0);
             } catch (Throwable ignored) { }
+            heading("Stock Home");
+            note("Opens the Gen5W's own home screen, e.g. to reach something only it has. Press Home to come back.");
+            button("Open Stock Home", new View.OnClickListener() { @Override public void onClick(View v) { openStockHome(a); dismiss(); } });
             patchStates(0, pv);
         }
 
@@ -356,7 +364,7 @@ public final class DevMenu {
             row("Load (1 / 5 / 15 min)", load == null ? null : load.trim().replaceAll("^(\\S+) (\\S+) (\\S+).*", "$1 / $2 / $3"), 0);
             long[] m = meminfo();
             row("Memory free", m == null ? null : (m[1] / 1024) + " MB of " + (m[0] / 1024) + " MB", m != null && m[1] < 60 * 1024 ? WARN : 0);
-            heading("Busiest processes (last 2 s)");
+            heading("Busiest Processes (Last 2 s)");
             if (lastCpu != null && now != null && !lastProc.isEmpty()) {
                 long total = Math.max(1, now[0] - lastCpu[0]);
                 List<long[]> top = new ArrayList<long[]>();
@@ -387,23 +395,23 @@ public final class DevMenu {
 
         void compat() {
             String fw = prop("ro.build.product2");
-            heading("Head unit");
+            heading("Head Unit");
             row("Firmware", fw, 0);
             row("Brand", cap(Fonts.brand(a)) + "  (" + brandSource() + ")", 0);
             android.util.DisplayMetrics dm = a.getResources().getDisplayMetrics();
             boolean screen = dm.widthPixels == 1920 && dm.heightPixels >= 700;
             row("Screen", dm.widthPixels + " x " + dm.heightPixels + " @ " + dm.densityDpi + " dpi", screen ? GOOD : WARN);
-            heading("System patches on this firmware");
+            heading("System Patches on This Firmware");
             note("LivePatch fits each patch to this firmware when it installs. A patch that installs successfully is supported.");
             final TextView[] pv = new TextView[PATCHES.length];
             for (int i = 0; i < PATCHES.length; i++) pv[i] = row(PATCHES[i][1], "checking…", 0);
             patchStates(2, pv);
-            heading("Car services");
+            heading("Car Services");
             row("Climate (DATC)", has(service("DATC_SERVICE", "com.hkmc.micom.datc")), 0);
             row("Seats / wheel (USM)", has(service("USM_SERVICE", "com.hkmc.micom.usm")), 0);
             row("EV (HEVManager)", has(cls("com.hkmc.hev.HEVManager")), 0);
             row("Audio (MicomAudioManager)", has(cls("com.hkmc.media.MicomAudioManager")), 0);
-            heading("Stock apps ccNC uses");
+            heading("Stock Apps ccNC Uses");
             String[][] apps = {
                     {"com.android.settings", "Setup"},
                     {"com.android.vehiclesettings", "Vehicle Settings"},
@@ -423,25 +431,36 @@ public final class DevMenu {
         // ---- Run checks ----
 
         void checks() {
-            heading("On-car check");
+            heading("On-Car Check");
             note("Opens every ccNC app for a few seconds (about a minute; the screen changes by itself), then saves "
                     + "REPORT.txt, ccnc.log and screenshots to \"ccNC reports/run-N/\" on the USB stick. Park first.");
-            button("Run checks", new View.OnClickListener() { @Override public void onClick(View v) { runChecks(); } });
-            heading("Without root");
-            button("Quick self-check", new View.OnClickListener() { @Override public void onClick(View v) { selfCheck(); } });
+            final String usb = usbStick();
+            if (usb == null) {
+                note("Insert a USB stick to run the on-car check. The report is saved to it.");
+                TextView b = button("Run Checks", new View.OnClickListener() { @Override public void onClick(View v) { select(3); } });
+                b.setAlpha(0.4f);
+            } else {
+                note("USB stick: " + usb);
+                button("Run Checks", new View.OnClickListener() { @Override public void onClick(View v) {
+                    if (usbStick() == null) { select(3); return; }   // pulled out since
+                    runChecks();
+                } });
+            }
+            heading("Without Root");
+            button("Quick Self-Check", new View.OnClickListener() { @Override public void onClick(View v) { selfCheck(); } });
         }
 
         void runChecks() {
             content.removeAllViews();
-            heading("Running the check…");
+            heading("Running the Check…");
             final TextView out = note("Starting through NEMESIS root. The screen will switch between apps.");
             final String[] r = new String[1];
             bg(3, new Runnable() { @Override public void run() {
-                if (!new File(DIR + "/verify.sh").exists()) { r[0] = "The check script isn't installed (" + DIR + "/verify.sh). Reinstall ccNC Apps or Home."; return; }
+                if (!new File(DIR + "/verify.sh").exists()) { r[0] = "The check script isn't installed (" + DIR + "/verify.sh). Reinstall ccNC for Gen5W."; return; }
                 r[0] = root("sh " + DIR + "/verify.sh", 240000);
             } }, new Runnable() { @Override public void run() {
                 content.removeAllViews();
-                heading("Check finished");
+                heading("Check Finished");
                 note(r[0]);
                 if (r[0] != null && r[0].startsWith("No NEMESIS root")) selfCheck();
             } });
@@ -449,7 +468,7 @@ public final class DevMenu {
 
         /** What an app can check on its own: ccNC apps installed and opening, theme provider, patch files. */
         void selfCheck() {
-            heading("Quick self-check");
+            heading("Quick Self-Check");
             PackageManager pm = a.getPackageManager();
             String[] apps = {"home", "settings", "climate", "media", "weather", "phone", "radio", "voicememo", "profile", "ev", "navi"};
             for (String s : apps) {
@@ -470,7 +489,9 @@ public final class DevMenu {
             d.requestWindowFeature(Window.FEATURE_NO_TITLE);
             d.getWindow().setBackgroundDrawable(new ColorDrawable(0x99000000));
             FrameLayout root = new FrameLayout(a);
-            root.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { d.dismiss(); } });
+            root.setSoundEffectsEnabled(false);
+            final long shownAt = SystemClock.uptimeMillis();
+            root.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { if (outsideOk(shownAt)) d.dismiss(); } });
             LinearLayout box = new LinearLayout(a);
             box.setOrientation(LinearLayout.VERTICAL);
             box.setClickable(true);
@@ -521,7 +542,7 @@ public final class DevMenu {
                     tabs[4].setTextColor(Palette.TEXT);
                     tab = -1;
                     content.removeAllViews();
-                    heading("Reboot didn't happen");
+                    heading("Reboot Didn't Happen");
                     note(r);
                 } }, 5000);
             } }, "ccncReboot").start();
@@ -534,10 +555,16 @@ public final class DevMenu {
      * Runs cmd as root through the NEMESIS CLI: the daemon copy first (full root), then the SUID binary.
      * Returns a short report: which one ran, its exit code and the end of its output.
      */
-    static String root(String cmd, long timeoutMs) {
+    public static String root(String cmd, long timeoutMs) {
         StringBuilder why = new StringBuilder();
         for (String bin : NEMESIS) {
             if (!new File(bin).exists()) { why.append(bin).append(": missing\n"); continue; }
+            // The daemon copy is made at install; after a NEMESIS update it's an old CLI, so it's skipped until the
+            // next ccNC install copies it again.
+            if (bin.equals(NEMESIS[0]) && new File(bin).length() != new File(NEMESIS[1]).length()) {
+                why.append(bin).append(": older than the installed NEMESIS, skipped\n");
+                continue;
+            }
             try {
                 final Process p = new ProcessBuilder(bin, "root", "-c", cmd).redirectErrorStream(true).start();
                 final StringBuilder out = new StringBuilder();
@@ -583,16 +610,47 @@ public final class DevMenu {
      */
     static Object[] patchState(int i, String mounts) {
         String path = PATCHES[i][2];
+        boolean mounted = false;
         if (mounts != null) for (String l : mounts.split("\n")) {
             String[] f = l.split(" ");
-            if (f.length > 1 && f[1].equals(path)) return new Object[]{"Active", GOOD};
+            if (f.length > 1 && f[1].equals(path)) { mounted = true; break; }
         }
+        // ccNC's own record first (written by the step's tool, filled in by the install script when NEMESIS reused
+        // a cached result): a mount alone may be another package's patch of the same file.
         String lp = read(LP_DIR + "/" + PATCHES[i][0]);
         lp = lp == null ? "" : lp.trim();
-        if (lp.equals("applied")) return new Object[]{"Installed, restart to apply", WARN};
-        if (lp.equals("unsupported")) return new Object[]{"Not supported on this firmware", 0};
+        if (lp.equals("applied")) return mounted ? new Object[]{"Active", GOOD} : new Object[]{"Installed, restart to apply", WARN};
+        if (lp.equals("unsupported")) return new Object[]{mounted ? "Not supported here (another package patches this file)" : "Not supported on this firmware", 0};
+        if (lp.equals("error")) return new Object[]{"Patch tool error (see NEMESIS's log)", BAD};
+        if (mounted) return new Object[]{"Patched by LivePatch (no ccNC record)", WARN};
         if (PATCHES[i][3].length() > 0 && PATCHES[i][3].equals(md5(path))) return new Object[]{"Active (1.x patch)", GOOD};
         return new Object[]{"Off", 0};
+    }
+
+    static final String STOCK_LAUNCHER = "com.android.launcher3";
+
+    static void openStockHome(Context c) {
+        try {
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_MAIN)
+                    .addCategory(android.content.Intent.CATEGORY_HOME).setPackage(STOCK_LAUNCHER);
+            if (c.getPackageManager().resolveActivity(i, 0) == null) i = c.getPackageManager().getLaunchIntentForPackage(STOCK_LAUNCHER);
+            if (i == null) { android.widget.Toast.makeText(c, "Stock home not found", android.widget.Toast.LENGTH_SHORT).show(); return; }
+            c.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Throwable t) { Log.w(TAG, "stock home", t); }
+    }
+
+    /** Outside taps close a popup only after it has been open this long. */
+    static boolean outsideOk(long since) { return SystemClock.uptimeMillis() - since >= 3000; }
+
+    /** The mounted USB stick (/storage/usbN), or null. */
+    static String usbStick() {
+        String m = readAll("/proc/mounts");
+        if (m == null) return null;
+        for (String l : m.split("\n")) {
+            String[] f = l.split(" ");
+            if (f.length > 1 && f[1].startsWith("/storage/usb")) return f[1];
+        }
+        return null;
     }
 
     static String cap(String s) { return s == null || s.isEmpty() ? "" : Character.toUpperCase(s.charAt(0)) + s.substring(1); }

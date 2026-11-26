@@ -51,6 +51,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     private LinearLayout strip;
     private ChromeViews.PageIndicator indicator;
     private int builtW = -1, builtH = -1;
+    private Object profileWatch;        // follows profile switches for the welcome greeting
     private boolean landing;            // page 0 is the welcome page
     private boolean resumed;
 
@@ -81,6 +82,8 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        UninstallCleanup.run(this);   // after an uninstall + restart: removes Climate and Home (see the class)
+        StartupProfile.run(this);     // default profile / auto-advance on the start-up profile screen
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         dp = getResources().getDisplayMetrics().density;
@@ -99,16 +102,18 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         });
         loadFonts();
         welcome = new WelcomePage(this, bold, regular, this);
+        loadSlots();
 
         root = new FrameLayout(this);
         root.addView(new ChromeViews.Background(this), match());
 
         topBar = new ChromeViews.TopBar(this, bold, regular);
-        topBar.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override public boolean onLongClick(View v) { showHomeMenu(); return true; }
-        });
         FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(64));
         root.addView(topBar, tp);
+        // Top left: the active profile (photo + name), as in every ccNC top bar. Tap: ccNC Profile.
+        FrameLayout.LayoutParams chip = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(64), Gravity.TOP | Gravity.LEFT);
+        chip.leftMargin = px(20);
+        root.addView(new dev.ccnc.common.ProfileChip(this), chip);
 
         pager = new Pager(this);
         strip = new LinearLayout(this);
@@ -143,7 +148,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         });
 
         TextView hint = new TextView(this);
-        hint.setText("Drag to rearrange");
+        hint.setText("Drag to Rearrange");
         hint.setTextSize(14f);
         hint.setTypeface(regular);
         hint.setTextColor(0xA6FFFFFF);
@@ -160,6 +165,42 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         chrome.addView(tray, new LinearLayout.LayoutParams(-2, -2));
         // Spacer pushes Done to the right edge of the toolbar row.
         chrome.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        // Hidden Apps, Welcome Page and Reset Layout: the edit-mode toolbar (no long-press menus).
+        final TextView hiddenBtn = outlinePill("Hidden Apps");
+        hiddenBtn.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showHidden(); } });
+        final TextView resetBtn = outlinePill("Reset Layout");
+        resetBtn.setOnClickListener(new View.OnClickListener() {
+            long armed;
+            @Override public void onClick(View v) {
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - armed > 3000) {       // first tap arms it for 3 s
+                    armed = now;
+                    resetBtn.setText("Tap Again to Reset");
+                    resetBtn.postDelayed(new Runnable() { @Override public void run() { resetBtn.setText("Reset Layout"); } }, 3000);
+                    return;
+                }
+                armed = 0;
+                resetBtn.setText("Reset Layout");
+                repo.reset();
+                reload();
+            }
+        });
+        final TextView welcomeBtn = outlinePill(welcomeEnabled() ? "Hide Welcome" : "Show Welcome");
+        welcomeBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                boolean on = !welcomeEnabled();
+                getSharedPreferences("home", MODE_PRIVATE).edit().putBoolean("welcome_page", on).apply();
+                welcomeBtn.setText(on ? "Hide Welcome" : "Show Welcome");
+                builtW = -1;
+                buildPages();
+                pager.post(new Runnable() { @Override public void run() { pager.toPage(landing ? 1 : 0, false); } });
+            }
+        });
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
+        bp.rightMargin = px(12);
+        chrome.addView(hiddenBtn, bp);
+        chrome.addView(welcomeBtn, new LinearLayout.LayoutParams(bp));
+        chrome.addView(resetBtn, new LinearLayout.LayoutParams(bp));
         chrome.addView(done, new LinearLayout.LayoutParams(-2, -2));
         FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
         cl.setMargins(px(28), px(76), px(28), 0);
@@ -230,6 +271,10 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         topBar.invalidate();
         refreshTheme();
         welcome.setDriver(demo ? "Jacob" : driverName());
+        refreshSlots();
+        if (profileWatch == null) profileWatch = dev.ccnc.common.Profiles.watch(this, new dev.ccnc.common.Profiles.Listener() {
+            @Override public void onProfilesChanged() { welcome.setDriver(demo ? "Jacob" : driverName()); }
+        });
         weather.start();
         if (getIntent().getBooleanExtra("diag", false)) {
             getIntent().removeExtra("diag");
@@ -244,12 +289,16 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
 
     @Override protected void onPause() {
         super.onPause();
+        evHandler.removeCallbacks(evTick);
         if (nowPlaying != null) nowPlaying.stop();
         resumed = false;
         unregisterReceiver(clock);
     }
 
     @Override protected void onDestroy() {
+        evHandler.removeCallbacksAndMessages(null);
+        dev.ccnc.common.Profiles.unwatch(this, profileWatch);
+        profileWatch = null;
         unregisterReceiver(packages);
         weather.stop();
         phone.stop();
@@ -364,7 +413,93 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
 
     // ---- WelcomePage.Listener ----
 
-    @Override public void onWeatherTapped() {
+    // ---- welcome page cards (long-press a card to choose what it shows) ----
+
+    private static final String[] SLOT_DEFAULTS = {"weather", "phone"};
+
+    private void loadSlots() {
+        android.content.SharedPreferences p = getSharedPreferences("home", MODE_PRIVATE);
+        for (int i = 0; i < 2; i++) welcome.slots[i] = p.getString("welcome_slot" + i, SLOT_DEFAULTS[i]);
+        refreshSlots();
+    }
+
+    /** App cards' pictures and names, and the EV card's data. */
+    private void refreshSlots() {
+        boolean ev = false;
+        for (int i = 0; i < 2; i++) {
+            String k = welcome.slots[i];
+            if (k.equals("ev")) ev = true;
+            if (k.startsWith("app:")) {
+                AppRepo.Entry e = entryFor(k.substring(4));
+                if (e != null) welcome.setApp(i, e.art, e.appIcon, e.label);
+                else welcome.setApp(i, null, null, "Not Installed");
+            }
+        }
+        evHandler.removeCallbacks(evTick);
+        if (ev) evHandler.post(evTick);
+    }
+
+    private AppRepo.Entry entryFor(String key) {
+        for (AppRepo.Entry e : repo.load(true)) if (e.key().equals(key)) return e;
+        return null;
+    }
+
+    /** Battery and range for the EV card, read the way ccNC EV does (HEVManager; 0.5 % steps), every 30 s. */
+    private final Runnable evTick = new Runnable() { @Override public void run() {
+        new Thread(new Runnable() { @Override public void run() {
+            int soc = -1, range = -1, unit = -1;
+            try {
+                Class<?> c = Class.forName("com.hkmc.hev.HEVManager");
+                Object m = c.getConstructor(android.content.Context.class).newInstance(getApplicationContext());
+                java.lang.reflect.Method g = c.getMethod("getHEVStatus", int.class);
+                int raw = ((Number) g.invoke(m, 0x19)).intValue();
+                soc = raw >= 0 && raw <= 200 ? Math.round(raw / 2f) : -1;
+                int e = ((Number) g.invoke(m, 0x9)).intValue(), t = ((Number) g.invoke(m, 0xb)).intValue();
+                range = e >= 0 ? e : t;
+                unit = ((Number) g.invoke(m, 0xc)).intValue();
+            } catch (Throwable ignored) { }
+            final int fs = soc, fr = range;
+            final boolean km = unit != 2;
+            runOnUiThread(new Runnable() { @Override public void run() { welcome.setEv(fs, fr, km); } });
+        } }, "ccncHomeEv").start();
+        evHandler.postDelayed(this, 30000);
+    } };
+    private final Handler evHandler = new Handler();   // its own: drag-and-drop clears `handler`
+
+    @Override public void onSlotTapped(int slot, String kind) {
+        if (kind.equals("weather")) onWeatherTapped();
+        else if (kind.equals("ev")) {
+            Intent i = getPackageManager().getLaunchIntentForPackage("dev.ccnc.ev");
+            if (i != null) launch(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), "EV");
+        } else if (kind.startsWith("app:")) {
+            AppRepo.Entry e = entryFor(kind.substring(4));
+            if (e != null) onOpen(e);
+            else Toast.makeText(this, "That app isn't installed. Long-press the card to choose another.", Toast.LENGTH_SHORT).show();
+        } else onPhoneTapped();
+    }
+
+    /** ccNC-style chooser: Weather, Phone & Now Playing, EV Battery, or any app. */
+    @Override public void onSlotLongPressed(final int slot) {
+        dev.ccnc.common.Chrome.beep(this);
+        final List<String> keys = new ArrayList<String>();
+        final List<String> labels = new ArrayList<String>();
+        keys.add("weather"); labels.add("Weather");
+        keys.add("phone"); labels.add("Phone & Now Playing");
+        keys.add("ev"); labels.add("EV Battery");
+        for (AppRepo.Entry e : repo.load(false)) { keys.add("app:" + e.key()); labels.add(e.label); }
+        int sel = keys.indexOf(welcome.slots[slot]);
+        new dev.ccnc.common.Popup(this, (slot == 0 ? "Left" : "Right") + " Card", "Choose what this card on the welcome page shows.")
+                .options(labels.toArray(new String[0]), sel, new dev.ccnc.common.Popup.Pick() {
+                    @Override public void onPick(int i) {
+                        welcome.slots[slot] = keys.get(i);
+                        getSharedPreferences("home", MODE_PRIVATE).edit().putString("welcome_slot" + slot, keys.get(i)).apply();
+                        refreshSlots();
+                        welcome.invalidate();
+                    }
+                }).show();
+    }
+
+    private void onWeatherTapped() {
         // ccNC Weather when it's installed; the stock telematics weather screen only as a fallback.
         try {
             getPackageManager().getPackageInfo("dev.ccnc.weather", 0);
@@ -375,7 +510,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         }
     }
 
-    @Override public void onPhoneTapped() {
+    private void onPhoneTapped() {
         for (AppRepo.Entry e : entries) {
             String pkg = e.component.getPackageName();
             if ((proj.carplay && Projection.CARPLAY_PKG.equals(pkg))
@@ -731,8 +866,10 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     private void onDragEnd() {
         CardView card = dragKey != null ? findCard(dragKey) : null;
         if (card != null) {
+            // Back to a normal edit-mode card: not lifted (so it dims and gets its edit outline again) and full size.
+            card.setLifted(false);
             if (editing) card.setEditMode(true);
-            card.animate().translationX(0f).translationY(0f).setDuration(160).start();
+            card.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(160).start();
         }
         dragging = false;
         dragNeedsAnchor = false;
@@ -788,7 +925,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         panel.setGravity(Gravity.CENTER_HORIZONTAL);
 
         TextView title = new TextView(this);
-        title.setText("Edit home");
+        title.setText("Edit Home");
         title.setTextSize(26f);
         title.setTypeface(bold);
         title.setTextColor(light ? 0xFF16212A : 0xFFFFFFFF);
@@ -902,90 +1039,24 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     }
 
 
-    private void showHomeMenu() {
-        final boolean wp = welcomeEnabled();
-        final String[] items = {"Rearrange apps\u2026", "Theme\u2026", "Accent colour\u2026", "Stack cards\u2026", wp ? "Hide welcome page" : "Show welcome page",
-                "Show hidden apps\u2026", "Reset layout", "Open stock home", "Android settings"};
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("ccNC Home")
-                .setItems(items, new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) {
-                        switch (which) {
-                            case 0: enterEditMode(); break;
-                            case 1: showThemes(); break;
-                            case 2: showAccents(); break;
-                            case 3: showStacks(); break;
-                            case 4:
-                                getSharedPreferences("home", MODE_PRIVATE).edit().putBoolean("welcome_page", !wp).apply();
-                                builtW = -1;
-                                buildPages();
-                                pager.post(new Runnable() { @Override public void run() { pager.toPage(0, false); } });
-                                break;
-                            case 5: showHidden(); break;
-                            case 6: repo.reset(); reload(); break;
-                            case 7: openStockHome(); break;
-                            default:
-                                launch(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), "Settings");
-                        }
-                    }
-                }).show();
-    }
-
-    private void showAccents() {
-        int cur = 0;
-        for (int i = 0; i < dev.ccnc.common.Themes.ACCENTS.length; i++) if (dev.ccnc.common.Themes.ACCENTS[i] == Theme.accentOverride) cur = i;
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("Accent colour")
-                .setSingleChoiceItems(dev.ccnc.common.Themes.ACCENT_NAMES, cur, new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) {
-                        Theme.saveAccent(HomeActivity.this, dev.ccnc.common.Themes.ACCENTS[which]);
-                        refreshTheme();
-                        d.dismiss();
-                    }
-                }).show();
+    /** Edit-mode button next to Done: same size, outlined instead of filled. */
+    private TextView outlinePill(String text) {
+        TextView b = new TextView(this);
+        b.setText(text);
+        b.setTextSize(15f);
+        b.setTypeface(bold);
+        b.setTextColor(0xFFFFFFFF);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(px(20), px(10), px(20), px(10));
+        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+        g.setCornerRadius(px(20));
+        g.setColor(0x33FFFFFF);
+        g.setStroke(Math.max(1, px(1)), 0x59FFFFFF);
+        b.setBackground(g);
+        return b;
     }
 
     // ---- stacks: two half-height cards sharing one slot ----
-
-    private void showStacks() {
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("Stacked cards")
-                .setItems(new String[]{"Stack two cards\u2026", "Remove a stack\u2026"}, new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) {
-                        if (which == 0) pickStackFront(); else pickStackToRemove();
-                    }
-                }).show();
-    }
-
-    private void pickStackFront() {
-        final List<AppRepo.Entry> free = new ArrayList<AppRepo.Entry>();
-        for (AppRepo.Entry e : entries) if (e.stackBack == null) free.add(e);
-        if (free.size() < 2) { Toast.makeText(this, "Not enough cards to stack", Toast.LENGTH_SHORT).show(); return; }
-        String[] names = new String[free.size()];
-        for (int i = 0; i < names.length; i++) names[i] = free.get(i).label;
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("Top card")
-                .setItems(names, new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) { pickStackBack(free.get(which), free); }
-                }).show();
-    }
-
-    private void pickStackBack(final AppRepo.Entry front, List<AppRepo.Entry> free) {
-        final List<AppRepo.Entry> rest = new ArrayList<AppRepo.Entry>(free);
-        rest.remove(front);
-        String[] names = new String[rest.size()];
-        for (int i = 0; i < names.length; i++) names[i] = rest.get(i).label;
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("Under " + front.label)
-                .setItems(names, new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) {
-                        List<String[]> st = repo.stacks();
-                        st.add(new String[]{front.key(), rest.get(which).key()});
-                        repo.saveStacks(st);
-                        reload();
-                    }
-                }).show();
-    }
 
     private String hoverKey;
     private long hoverSince;
@@ -1032,30 +1103,6 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         for (int i = st.size() - 1; i >= 0; i--) if (st.get(i)[0].equals(e.key()) || st.get(i)[1].equals(e.key())) st.remove(i);
         repo.saveStacks(st);
         reload();
-    }
-
-    /** Stack the tapped card with a free one: the tapped card goes on top. */
-    private void pickStackBackFor(AppRepo.Entry front) {
-        List<AppRepo.Entry> free = new ArrayList<AppRepo.Entry>();
-        for (AppRepo.Entry x : entries) if (x.stackBack == null) free.add(x);
-        if (free.size() < 2) { Toast.makeText(this, "Not enough cards to stack", Toast.LENGTH_SHORT).show(); return; }
-        pickStackBack(front, free);
-    }
-
-    private void pickStackToRemove() {
-        final List<String[]> st = repo.stacks();
-        if (st.isEmpty()) { Toast.makeText(this, "No stacks", Toast.LENGTH_SHORT).show(); return; }
-        String[] names = new String[st.size()];
-        for (int i = 0; i < names.length; i++) names[i] = labelOf(st.get(i)[0]) + "  +  " + labelOf(st.get(i)[1]);
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("Remove which stack?")
-                .setItems(names, new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) {
-                        st.remove(which);
-                        repo.saveStacks(st);
-                        reload();
-                    }
-                }).show();
     }
 
     private String labelOf(String key) {
@@ -1126,34 +1173,19 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         java.util.Set<String> keys = repo.hidden();
         for (AppRepo.Entry e : repo.load(true)) if (keys.contains(e.key())) hidden.add(e);
         if (hidden.isEmpty()) {
-            Toast.makeText(this, "No hidden apps", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No Hidden Apps", Toast.LENGTH_SHORT).show();
             return;
         }
         String[] labels = new String[hidden.size()];
         for (int i = 0; i < labels.length; i++) labels[i] = hidden.get(i).label;
         new AlertDialog.Builder(this, dialogTheme())
-                .setTitle("Tap to show again")
+                .setTitle("Tap to Show Again")
                 .setItems(labels, new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface d, int which) {
                         repo.setHidden(hidden.get(which).key(), false);
                         reload();
                     }
                 }).show();
-    }
-
-    private void openStockHome() {
-        Intent i = new Intent(Intent.ACTION_MAIN);
-        i.addCategory(Intent.CATEGORY_HOME);
-        i.setPackage(AppRepo.STOCK_LAUNCHER);
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        if (getPackageManager().resolveActivity(i, 0) == null) {
-            i = getPackageManager().getLaunchIntentForPackage(AppRepo.STOCK_LAUNCHER);
-            if (i == null) {
-                Toast.makeText(this, "Stock launcher not found", Toast.LENGTH_SHORT).show();
-                return;
-            }
-        }
-        launch(i, "Stock home");
     }
 
     private void launch(Intent i, String what) {

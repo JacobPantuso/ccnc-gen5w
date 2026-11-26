@@ -54,8 +54,11 @@ final class EvData {
         boolean km() { return tripUnit != 2; } // car reported unit=1 with 351 range (km on a metric-market car: 351 mi at 76 % is impossible)
     }
 
-    /** The car reports charge limits like the battery level: 0.5 % steps (200 = 100 %). */
-    private static int half(int v) { return v > 100 && v <= 200 ? v / 2 : v; }
+    /**
+     * The car reports the battery level and charge limits in 0.5 % steps (200 = 100 %), always: 38 % is 76. (The old
+     * "halve only above 100" guess showed anything under 50 % doubled.) Outside 0..200 = no valid reading (-1).
+     */
+    static int half(int v) { return v >= 0 && v <= 200 ? Math.round(v / 2f) : -1; }
 
     private Object mgr;
     private Method get;
@@ -92,7 +95,7 @@ final class EvData {
     Snapshot snapshot() {
         Snapshot s = new Snapshot();
         if (mgr == null) { s.error = error; return s; }
-        s.soc = read(DISPLAY_SOC);
+        s.soc = half(read(DISPLAY_SOC));
         int e = read(ELECTRIC_DTE), t = read(TOTAL_DTE);
         s.dte = e >= 0 ? e : t;
         s.tripUnit = read(TRIP_UNIT);

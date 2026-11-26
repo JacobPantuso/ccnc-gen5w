@@ -39,6 +39,9 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
         dev.ccnc.common.Themes.apply(app); // shared ccNC theme, as MainActivity does
         wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
         view = new ClimateView(app, this, true);
+        view.setOnTouchListener(new android.view.View.OnTouchListener() {   // any touch keeps it open another 10 s
+            @Override public boolean onTouch(android.view.View v, android.view.MotionEvent e) { bumpIdle(); return false; }
+        });
     }
 
     /** Opens the popup, or closes it when it is already up. False only if it could not be shown. */
@@ -53,7 +56,10 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
     private boolean show() {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY,
+                // TYPE_SYSTEM_ALERT, not TYPE_SYSTEM_OVERLAY: on Android 4.4 a system overlay never receives touches,
+                // so its close button and tap-outside did nothing and the popup could only go with the seat button.
+                // (Android 8+, emulator tests only: TYPE_APPLICATION_OVERLAY, the same thing there.)
+                android.os.Build.VERSION.SDK_INT >= 26 ? 2038 : WindowManager.LayoutParams.TYPE_SYSTEM_ALERT,
                 // Not focusable: the app underneath keeps focus, and its back/keys are not taken away.
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
@@ -75,10 +81,19 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
             source.start(this);
         }
         view.setState(state, source.isVehicle());
+        bumpIdle();
         return true;
     }
 
+    /** Closes by itself after this long without a touch, like the stock popup: it can never be left stuck on screen. */
+    private static final long IDLE_MS = 10000;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable idle = new Runnable() { @Override public void run() { Log.i(TAG, "closed after " + IDLE_MS + " ms idle"); hide(); } };
+
+    private void bumpIdle() { ui.removeCallbacks(idle); if (attached) ui.postDelayed(idle, IDLE_MS); }
+
     private void hide() {
+        ui.removeCallbacks(idle);
         if (!attached) return;
         attached = false;
         if (shown == this) shown = null;
@@ -98,6 +113,7 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
 
     /** The popup changed {@link #state}. Same rules as MainActivity: controls the car unless Vehicle control was turned off. */
     @Override public void onChanged() {
+        bumpIdle();
         if (source.isVehicle()) {
             if (control && vehicleState != null) {
                 datc.sendChanges(vehicleState, state); // the next reading from the car replaces the optimistic state

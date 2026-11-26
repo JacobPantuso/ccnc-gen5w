@@ -18,6 +18,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** Loads the head unit's launchable apps and turns them into home cards. */
@@ -228,20 +229,34 @@ final class AppRepo {
         prefs.edit().putString("order", TextUtils.join("|", keys)).apply();
     }
 
+    /** What the owner hid (or, until they hide or show something, the curated defaults). */
+    private Set<String> chosen() {
+        return !prefs.contains("hidden") ? new HashSet<String>(Curated.DEFAULT_HIDDEN)
+                : new HashSet<String>(prefs.getStringSet("hidden", Collections.<String>emptySet()));
+    }
+
     Set<String> hidden() {
-        // Until the owner hides or shows something, start from the curated defaults.
-        if (!prefs.contains("hidden")) return new HashSet<String>(Curated.DEFAULT_HIDDEN);
-        return new HashSet<String>(prefs.getStringSet("hidden", Collections.<String>emptySet()));
+        Set<String> h = chosen();
+        // Stock apps a ccNC app replaces stay off the pages while it's installed, unless the owner showed them.
+        Set<String> shown = prefs.getStringSet("shown", Collections.<String>emptySet());
+        for (Map.Entry<String, String> r : Curated.REPLACED.entrySet())
+            if (!shown.contains(r.getKey()) && installed(r.getValue())) h.add(r.getKey());
+        return h;
+    }
+
+    private boolean installed(String pkg) {
+        try { ctx.getPackageManager().getPackageInfo(pkg, 0); return true; } catch (Exception e) { return false; }
     }
 
     void setHidden(String key, boolean hide) {
-        Set<String> h = hidden();
-        if (hide) h.add(key); else h.remove(key);
-        prefs.edit().putStringSet("hidden", h).apply();
+        Set<String> h = chosen();
+        Set<String> shown = new HashSet<String>(prefs.getStringSet("shown", Collections.<String>emptySet()));
+        if (hide) { h.add(key); shown.remove(key); } else { h.remove(key); shown.add(key); }
+        prefs.edit().putStringSet("hidden", h).putStringSet("shown", shown).apply();
     }
 
     void reset() {
-        prefs.edit().remove("order").remove("hidden").remove("stacks").apply();
+        prefs.edit().remove("order").remove("hidden").remove("shown").remove("stacks").apply();
     }
 
     /** Stacks as {frontKey, backKey} pairs. A stack holds exactly two cards. */
