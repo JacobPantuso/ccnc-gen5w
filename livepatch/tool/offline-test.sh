@@ -42,7 +42,7 @@ fi
 
 # 4. lp-ccnc's exit mapping and records, with a stand-in for the unit's dalvikvm
 LP=../gen5w/template/bin/lp-ccnc
-mkdir -p $T/pkg/files && touch $T/pkg/files/ccnc-lp.jar && echo x > $T/in
+mkdir -p $T/pkg/files && echo jar > $T/pkg/files/ccnc-lp.jar && echo x > $T/in
 for c in "0:0:applied" "10:10:applied" "1:10:unsupported" "3:1:error" "137:1:error"; do
   rc=${c%%:*}; rest=${c#*:}; want=${rest%%:*}; mark=${rest#*:}
   printf '#!/bin/sh\nfor a; do o=$a; done\n[ %s = 0 ] && echo out > "$o"\nexit %s\n' $rc $rc > $T/dvm; chmod +x $T/dvm
