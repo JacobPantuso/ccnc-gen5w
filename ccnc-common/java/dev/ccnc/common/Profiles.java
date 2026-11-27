@@ -71,7 +71,7 @@ public final class Profiles {
 
     /** The active profile (0 guest, 1, 2), or -1 if it can't be read. */
     public static int active(Context c) {
-        if (!onCar(c)) return demoActive;
+        if (!onCar(c)) return setting(c, "demo_active", demoActive);   // shared through ccNC Profile, when it's there
         try { return ((Number) call(c, "getUserType", new Class<?>[0])).intValue(); } catch (Throwable t) { return -1; }
     }
 
@@ -151,6 +151,7 @@ public final class Profiles {
             String msg = null;
             if (!onCar(c)) {
                 demoActive = id;
+                setSetting(c, "demo_active", id);   // every ccNC app follows (the provider announces the change)
                 ok = true;
                 ui.postDelayed(new Runnable() { @Override public void run() { notifyDemo(); } }, 1200);
             } else {

@@ -53,7 +53,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     private int builtW = -1, builtH = -1;
     private Object profileWatch;        // follows profile switches for the welcome greeting
     private boolean landing;            // page 0 is the welcome page
-    private View profileChip;           // top-left profile chip, hidden on the welcome page
+    private View profileChip;           // top-left profile chip, on every page
     /** Hidden apps: in edit mode their cards follow the other apps (greyed, crossed-out eye; tap to show again). */
     private List<AppRepo.Entry> hiddenEntries = new ArrayList<AppRepo.Entry>();
     private final List<CardView> hiddenCards = new ArrayList<CardView>();
@@ -123,7 +123,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         // Top left: the active profile (photo + name), as in every ccNC top bar. Tap: ccNC Profile.
         FrameLayout.LayoutParams chip = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(64), Gravity.TOP | Gravity.LEFT);
         chip.leftMargin = px(20);
-        // Hidden on the welcome page (its greeting already names the driver); fades in with the clock.
+        // On every page, the welcome page included (the start-up chooser's profile lands here).
         profileChip = new dev.ccnc.common.ProfileChip(this);
         root.addView(profileChip, chip);
 
@@ -221,7 +221,6 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         pager.setListener(new Pager.Listener() {
             @Override public void onPagePosition(float p) {
                 indicator.setPosition(p); updateTray(); topBar.setClockAlpha(landing ? p : 1f);
-                setChipAlpha(landing ? p : 1f);
                 if (dragging) onPagerMovedInDrag();
             }
         });
@@ -634,7 +633,6 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         indicator.setCount(pages);
         updateTray();
         topBar.setClockAlpha(landing && pager.page() == 0 ? 0f : 1f);
-        setChipAlpha(landing && pager.page() == 0 ? 0f : 1f);
         if (dragKey != null) {
             // Rebuilt under a held card (an app was installed, the screen width changed): pick the new view up.
             dragCard = cardByKey.get(dragKey);
@@ -1058,13 +1056,6 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     };
 
     /** The page moved under the finger (edge flip, page chip): the card stays with the finger, not the page. */
-    /** The profile chip follows the clock: gone on the welcome page, so it can't be tapped there either. */
-    private void setChipAlpha(float a) {
-        if (profileChip == null) return;
-        a = Math.max(0f, Math.min(1f, a));
-        profileChip.setAlpha(a);
-        profileChip.setVisibility(a <= 0.01f ? View.INVISIBLE : View.VISIBLE);
-    }
 
     private void onPagerMovedInDrag() {
         if (dragCard == null || dragNeedsAnchor) return;

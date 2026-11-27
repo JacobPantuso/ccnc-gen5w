@@ -137,13 +137,17 @@ public final class StartupChooser extends Service {
             if (!preview && !StartupScreen.pending()) { leave("the car's start-up screen continued meanwhile"); return; }
             Themes.apply(this);   // shared ccNC theme
             FrameLayout f = new FrameLayout(this);
-            f.addView(new Bg(this), new FrameLayout.LayoutParams(-1, -1));
+            bgView = new Bg(this);
+            f.addView(bgView, new FrameLayout.LayoutParams(-1, -1));
             LinearLayout col = new LinearLayout(this);
             col.setOrientation(LinearLayout.VERTICAL);
             // Centred in the space the window gets: below the car's status bar on the car (about 630 px), the whole
             // screen in the emulator preview.
             col.setGravity(Gravity.CENTER);
+            col.setClipChildren(false); col.setClipToPadding(false);   // the profile glides out of its row on the way to the chip
+            f.setClipChildren(false);
             TextView title = text(greeting(), 30, Palette.TEXT, Fonts.SEMIBOLD);
+            this.title = title;
             col.addView(title, new LinearLayout.LayoutParams(-1, Palette.px(this, 50)));
             cards = new Cards(this);
             LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, Palette.px(this, 300));
@@ -153,6 +157,12 @@ public final class StartupChooser extends Service {
             status = text("Starting…", 18, Palette.SUBTEXT, Fonts.REGULAR);
             col.addView(status, new LinearLayout.LayoutParams(-1, Palette.px(this, 30)));
             f.addView(col, new FrameLayout.LayoutParams(-1, -1));
+            // The chosen profile's glide to the chip is drawn here, over the whole window: inside the row's own view it
+            // would be cropped as soon as it left the row.
+            glide = new View(this) {
+                @Override protected void onDraw(Canvas c) { if (cards != null) cards.drawGlide(c, this); }
+            };
+            f.addView(glide, new FrameLayout.LayoutParams(-1, -1));
             // A system-alert window: above the car's start-up screen (same layer with ccNC's SystemUI step, added
             // later), under the rear camera. Not focusable, so the car's keys still reach the car's screen.
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(-1, -1, android.os.Build.VERSION.SDK_INT >= 26 ? 2038 : WindowManager.LayoutParams.TYPE_SYSTEM_ALERT,
@@ -160,7 +170,7 @@ public final class StartupChooser extends Service {
                             // The whole screen, the status bar's strip included: this window's layer (17) is above
                             // the status bar (15), it was only being laid out below it.
                             | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                            | WindowManager.LayoutParams.FLAG_FULLSCREEN, PixelFormat.OPAQUE);
+                            | WindowManager.LayoutParams.FLAG_FULLSCREEN, PixelFormat.TRANSLUCENT);
             lp.setTitle("ccNC Start-Up Chooser");
             lp.gravity = Gravity.TOP | Gravity.LEFT;
             lp.x = 0; lp.y = 0;
@@ -174,6 +184,11 @@ public final class StartupChooser extends Service {
             receiving = true;
             shownAt = SystemClock.uptimeMillis();
             chosen = pick();
+            for (int i = 0; i < 3; i++) { slotFrom[i] = slotTo[i] = slot(i, chosen); }
+            slotsSet = true;
+            unfoldAt = shownAt + UNFOLD_DELAY_MS;
+            f.setAlpha(0f);
+            f.animate().alpha(1f).setDuration(FADE_MS).start();
             Log.i(TAG, "start-up chooser shown: car profile " + start + ", default " + def + ", countdown " + secs + " s");
             ui.post(tick);
         } catch (Throwable t) {
@@ -182,6 +197,50 @@ public final class StartupChooser extends Service {
     }
 
     /** ccNC's default profile, unless it has a password (the car asks for that on its own screen): then the car's. */
+    // ---- motion, after ccNC's own profile screen (userprofilehmi): the selected profile alone in the middle and a
+    // little lower, then the row unfolds (the others grow in beside it, names fade in); taps slide the row so the
+    // chosen profile is in the middle (400 ms) with a pulse of its ring; continuing shrinks it to 80% while it glides
+    // towards the profile chip at the top left and everything else fades (1167 ms, ease in-out expo).
+    static final long FADE_MS = 333, UNFOLD_DELAY_MS = 450, UNFOLD_MS = 450, SWAP_MS = 400, PULSE_UP_MS = 150,
+            PULSE_DOWN_MS = 333, EXIT_MS = 1167, EXIT_FADE_MS = 500;
+    private long unfoldAt, swapAt = -1, pulseAt = -1, exitAt = -1;
+    private final float[] slotFrom = new float[3], slotTo = new float[3];
+    private boolean slotsSet;
+    private View title, bgView, glide;
+
+    /** -1 left, 0 middle, 1 right: the chosen profile is always in the middle, as on ccNC. */
+    static int slot(int i, int chosen) {
+        int o = ((i - chosen) % 3 + 3) % 3;
+        return o == 0 ? 0 : o == 1 ? 1 : -1;
+    }
+
+    static float clamp01(float v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+    static float inOutCubic(float t) { return t < 0.5f ? 4 * t * t * t : 1 - (float) Math.pow(-2 * t + 2, 3) / 2; }
+    static float inOutExpo(float t) {
+        if (t <= 0) return 0; if (t >= 1) return 1;
+        return t < 0.5f ? (float) Math.pow(2, 20 * t - 10) / 2 : (2 - (float) Math.pow(2, -20 * t + 10)) / 2;
+    }
+
+    private float since(long at) { return at < 0 ? -1 : SystemClock.uptimeMillis() - at; }
+
+    /** Slides the row so profile {@code id} is in the middle. */
+    private void moveTo(int id) {
+        for (int i = 0; i < 3; i++) {
+            float cur = slotsSet ? slotNow(i) : slot(i, id);
+            slotFrom[i] = cur;
+            slotTo[i] = slot(i, id);
+        }
+        slotsSet = true;
+        swapAt = SystemClock.uptimeMillis();
+    }
+
+    /** Where profile {@code i} is drawn now, in slots (-1, 0, 1). */
+    private float slotNow(int i) {
+        if (!slotsSet) return slot(i, chosen);
+        float t = swapAt < 0 ? 1 : clamp01(since(swapAt) / SWAP_MS);
+        return slotFrom[i] + (slotTo[i] - slotFrom[i]) * inOutCubic(t);
+    }
+
     private int pick() {
         return def >= 0 && def < 3 && !locked[def] ? def : start >= 0 && start < 3 ? start : 0;
     }
@@ -190,7 +249,23 @@ public final class StartupChooser extends Service {
         if (state == GONE) return;
         try {
             long now = SystemClock.uptimeMillis();
-            if (!preview && StartupScreen.confirmed()) { leave("the car continued" + (chosen >= 0 ? " (asked for profile " + chosen + ")" : "")); return; }
+            if (exitAt >= 0) {                                       // playing the hand-over to Home
+                if (now - exitAt >= EXIT_MS) { leave("the car continued" + (chosen >= 0 ? " (asked for profile " + chosen + ")" : "")); return; }
+                cards.invalidate();
+                if (glide != null) glide.invalidate();
+                ui.postDelayed(this, 16);
+                return;
+            }
+            if ((preview ? state == ASKED && now - askedAt > 900 : StartupScreen.confirmed())) {
+                exitAt = now;
+                if (title != null) title.animate().alpha(0f).setDuration(EXIT_FADE_MS).start();
+                if (status != null) status.animate().alpha(0f).setDuration(EXIT_FADE_MS).start();
+                // Home shows through as the profile lands on its chip (the window is opaque only through its background)
+                if (bgView != null) bgView.animate().alpha(0f).setStartDelay(EXIT_MS / 3).setDuration(EXIT_MS * 2 / 3).start();
+                cards.invalidate();
+                ui.postDelayed(this, 16);
+                return;
+            }
             if (now - shownAt > MAX_SHOWN_MS) { leave("still waiting after " + MAX_SHOWN_MS / 1000 + " s"); return; }
             if (state == WAITING) {
                 if (enabledAt == 0 && (preview || StartupScreen.enabled())) enabledAt = now;
@@ -207,7 +282,7 @@ public final class StartupChooser extends Service {
                 if (now - askedAt > (chosen != start ? ANSWER_SWITCH_MS : ANSWER_MS)) { leave("the car didn't continue: its own screen takes over"); return; }
             }
             cards.invalidate();
-            ui.postDelayed(this, 50);
+            ui.postDelayed(this, 16);
         } catch (Throwable t) {
             leave("error: " + t);
         }
@@ -216,9 +291,12 @@ public final class StartupChooser extends Service {
     /** A tap or the end of the countdown: selection first, then the request; the car's screen decides. */
     private void ask(int id, boolean tapped) {
         if (state != COUNTING || id < 0 || id > 2) return;
+        if (id != chosen) moveTo(id);
         chosen = id;
-        if (tapped || id != start) StartupScreen.select(this, id);
-        if (!StartupScreen.askContinue(this)) { leave("ccNC's SystemUI step isn't active"); return; }
+        pulseAt = SystemClock.uptimeMillis();
+        if (!preview && (tapped || id != start)) StartupScreen.select(this, id);
+        if (preview) Profiles.switchTo(this, id, null);   // the emulator demo: the car would switch on confirm
+        if (!preview && !StartupScreen.askContinue(this)) { leave("ccNC's SystemUI step isn't active"); return; }
         askedAt = SystemClock.uptimeMillis();
         state = ASKED;
         say(locked[id] ? "Enter " + names[id] + "'s password on the screen that opens" : "Continuing as " + names[id] + "…");
@@ -291,7 +369,7 @@ public final class StartupChooser extends Service {
 
         private int hit(float x, float y) {
             float k = k(), mx = getWidth() / 2f;
-            for (int i = 0; i < 3; i++) if (Math.abs(x - (mx + cx[i] * k)) < 120 * k && Math.abs(y - my()) < 150 * k) return i;
+            for (int i = 0; i < 3; i++) if (Math.abs(x - (mx + 240f * slotNow(i) * k)) < 120 * k && Math.abs(y - my()) < 150 * k) return i;
             return -1;
         }
 
@@ -310,52 +388,117 @@ public final class StartupChooser extends Service {
             return true;
         }
 
+        /** The chosen profile on its way to the chip, drawn on the full-window layer {@code on}. */
+        void drawGlide(Canvas c, View on) {
+            if (exitAt < 0 || chosen < 0 || chosen > 2) return;
+            long now = SystemClock.uptimeMillis();
+            float exit = inOutExpo(clamp01((now - exitAt) / (float) EXIT_MS));
+            int[] a = new int[2], b = new int[2];
+            getLocationInWindow(a); on.getLocationInWindow(b);
+            float k = k(), ox = a[0] - b[0], oy = a[1] - b[1];
+            float x0 = ox + getWidth() / 2f + 240f * slotNow(chosen) * k, y0 = oy + my();
+            // ccNC Home's profile chip, in screen pixels: left margin 20dp, photo 36dp wide starting 4dp in, in a
+            // 64dp-high top bar (HomeActivity / ProfileChip). The window starts at the screen's top left.
+            float dp = getResources().getDisplayMetrics().density;
+            float tx = (20 + 4 + 18) * dp - b[0], ty = 32 * dp - b[1], endScale = 36 * dp / (220f * k);
+            float x = x0 + (tx - x0) * exit, y = y0 + (ty - y0) * exit;
+            float scale = 1f + (endScale - 1f) * exit;
+            float alpha = 1f - Math.max(0f, exit - 0.92f) / 0.08f;   // lands, then hands over to the chip
+            if (alpha <= 0.01f || scale <= 0.01f) return;
+            float d = 220f * k * scale;
+            Bitmap bm = photos[chosen];
+            if (bm != null && shaders[chosen] != null) {
+                float sc = d / Math.min(bm.getWidth(), bm.getHeight());
+                m.setScale(sc, sc);
+                m.postTranslate(x - bm.getWidth() * sc / 2f, y - bm.getHeight() * sc / 2f);
+                shaders[chosen].setLocalMatrix(m);
+                img.setShader(shaders[chosen]);
+                img.setAlpha((int) (255 * alpha));
+                c.drawCircle(x, y, d / 2f, img);
+                img.setShader(null);
+            } else {
+                img.setColor(0x33FFFFFF);
+                c.drawCircle(x, y, d / 2f, img);
+            }
+        }
+
         @Override protected void onDraw(Canvas c) {
             float k = k(), mx = getWidth() / 2f, my = my();
-            for (int i = 0; i < 3; i++) {
+            long now = SystemClock.uptimeMillis();
+            // Opening: until the row unfolds, only the chosen profile shows, 35 px lower; then the others grow in.
+            float unfold = inOutCubic(clamp01((now - unfoldAt) / (float) UNFOLD_MS));
+            // Hand-over to Home: the chosen profile shrinks to 80% and glides to the profile chip at the top left.
+            float exit = exitAt < 0 ? 0 : inOutExpo(clamp01((now - exitAt) / (float) EXIT_MS));
+            float exitFade = exitAt < 0 ? 1 : 1 - clamp01((now - exitAt) / (float) EXIT_FADE_MS);
+            int[] order = new int[3];   // the chosen profile last, so it's drawn on top
+            for (int i = 0, n = 0; i < 3; i++) if (i != chosen) order[n++] = i;
+            order[2] = chosen >= 0 ? chosen : 2;
+            for (int i : order) {
                 boolean on = i == chosen;
-                float d = (on ? 220f : 180f) * k * (i == down ? 0.94f : 1f), x = mx + cx[i] * k;
+                float slot = slotNow(i);
+                float base = on ? 220f : 180f;
+                float d = base * k * (i == down ? 0.94f : 1f);
+                float x = mx + 240f * slot * k, y = my;
+                float alpha = on ? 1f : 0.7f, scale = 1f;
+                if (on) y += 35f * k * (1 - unfold);
+                else { scale = unfold; alpha *= unfold; }
+                if (exitAt >= 0) {
+                    if (on) continue;   // drawn by the glide layer
+                    alpha *= exitFade;
+                }
+                // tap: the ring widens and settles; asked: the photo breathes until the car continues
+                if (on && state == ASKED && exitAt < 0) alpha *= 0.6f + 0.4f * (float) Math.abs(Math.cos(Math.PI * ((now - askedAt) % 500) / 500.0));
+                if (alpha <= 0.01f || scale <= 0.01f) continue;
+                d *= scale;
                 Bitmap b = photos[i];
                 if (b != null && shaders[i] != null) {
                     float sc = d / Math.min(b.getWidth(), b.getHeight());
                     m.setScale(sc, sc);
-                    m.postTranslate(x - b.getWidth() * sc / 2f, my - b.getHeight() * sc / 2f);
+                    m.postTranslate(x - b.getWidth() * sc / 2f, y - b.getHeight() * sc / 2f);
                     shaders[i].setLocalMatrix(m);
                     img.setShader(shaders[i]);
-                    img.setAlpha(on ? 255 : 170);
-                    c.drawCircle(x, my, d / 2f, img);
+                    img.setAlpha((int) (255 * alpha));
+                    c.drawCircle(x, y, d / 2f, img);
                     img.setShader(null);
                 } else {
                     img.setColor(0x33FFFFFF);
-                    c.drawCircle(x, my, d / 2f, img);
+                    img.setAlpha((int) (0x33 * alpha));
+                    c.drawCircle(x, y, d / 2f, img);
                 }
                 if (i == down) {
                     press.setColor(Palette.PRESS);
-                    c.drawCircle(x, my, d / 2f, press);
+                    c.drawCircle(x, y, d / 2f, press);
                 }
-                if (on) {
-                    float f = 238f * k;
-                    r.set(x - f / 2, my - f / 2, x + f / 2, my + f / 2);
+                if (on && exitAt < 0) {
+                    float p = since(pulseAt), widen = 0;
+                    if (p >= 0 && p < PULSE_UP_MS) widen = inOutCubic(p / PULSE_UP_MS);
+                    else if (p >= PULSE_UP_MS && p < PULSE_UP_MS + PULSE_DOWN_MS) widen = 1 - inOutCubic((p - PULSE_UP_MS) / PULSE_DOWN_MS);
+                    float f = (238f + 22f * widen) * k * scale;
+                    r.set(x - f / 2, y - f / 2, x + f / 2, y + f / 2);
                     ring.setStrokeWidth(7f * k);
-                    ring.setColor(Palette.alpha(Palette.TEXT, 0x33));
+                    ring.setColor(Palette.alpha(Palette.TEXT, (int) (0x33 * unfold)));
                     c.drawArc(r, 0, 360, false, ring);
                     ring.setColor(Palette.ACCENT);
                     if (state == COUNTING) {          // a full ring that runs backwards to nothing
-                        float left = Math.max(0f, 1f - (SystemClock.uptimeMillis() - countFrom) / (secs * 1000f));
+                        float left = Math.max(0f, 1f - (now - countFrom) / (secs * 1000f));
                         c.drawArc(r, -90, 360f * left, false, ring);
                     } else if (state == ASKED) {      // turning until the car continues
-                        c.drawArc(r, (SystemClock.uptimeMillis() % 1200) / 1200f * 360f, 270, false, ring);
+                        c.drawArc(r, (now % 1200) / 1200f * 360f, 270, false, ring);
                     }
                 }
+                float nameAlpha = (on ? 1f : 0.7f) * unfold * exitFade;
+                if (nameAlpha <= 0.01f) continue;
                 text.setTypeface(Fonts.get(getContext(), on ? Fonts.SEMIBOLD : Fonts.REGULAR));
                 text.setTextSize((on ? 38f : 30f) * k);
                 text.setColor(on ? Palette.TEXT : Palette.SUBTEXT);
+                text.setAlpha((int) (255 * nameAlpha));
                 text.setTextAlign(Paint.Align.CENTER);
-                c.drawText(names[i], x, my + 170f * k, text);
+                c.drawText(names[i], x, y + 170f * k * scale, text);
                 if (locked[i]) {
                     text.setTextSize(22f * k);
                     text.setColor(Palette.SUBTEXT);
-                    c.drawText("Password", x, my + 206f * k, text);
+                    text.setAlpha((int) (255 * nameAlpha));
+                    c.drawText("Password", x, y + 206f * k * scale, text);
                 }
             }
         }

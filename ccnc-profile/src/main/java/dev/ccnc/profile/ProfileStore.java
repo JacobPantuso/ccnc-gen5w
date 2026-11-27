@@ -41,12 +41,16 @@ final class ProfileStore {
     static String photoChoice(Context c, int id) { return prefs(c).getString("photo_" + id, ""); }
 
     static void setDefaultProfile(Context c, int id) { prefs(c).edit().putInt("default_profile", id).commit(); changed(c); }
+    static int demoActive(Context c) { return prefs(c).getInt("demo_active", 1); }
+
     static void setAutoAdvance(Context c, int secs) { prefs(c).edit().putInt("auto_advance", secs).commit(); changed(c); }
 
     /** Writes from ccNC Setup (ProfileProvider.call "set"): only these keys and values. */
     static boolean set(Context c, String key, int v) {
         if ("default_profile".equals(key) && v >= -1 && v <= 2) { setDefaultProfile(c, v); return true; }
         if ("auto_advance".equals(key) && v >= -1 && v <= 30) { setAutoAdvance(c, v); return true; }
+        // Off the car only (no profile service): the demo's active profile, shared by every ccNC app through here.
+        if ("demo_active".equals(key) && v >= 0 && v <= 2) { prefs(c).edit().putInt("demo_active", v).commit(); changed(c); return true; }
         return false;
     }
 

@@ -190,7 +190,9 @@ final class AppRepo {
             CharSequence l = ai.loadLabel(pm);
             String label = l == null || l.toString().trim().isEmpty() ? cn.getPackageName() : l.toString().trim();
             Entry e = new Entry(cn, label, Icons.Kind.APP, ai.loadIcon(pm));
-            e.art = dev.ccnc.common.Art.icon(ctx, "themelayout");   // one icon set on every card, as for other apps
+            // Their own icon, as the stock launcher shows them (HMG-API's tile uses the app's icon too): drawn like the
+            // CarPlay / Android Auto logos rather than replaced by ccNC's generic icon.
+            e.art = null;
             out.add(e);
             have.add(cn.getPackageName());
         }

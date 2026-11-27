@@ -28,9 +28,9 @@ public final class ProfileProvider extends ContentProvider {
     @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String sort) {
         List<String> seg = uri.getPathSegments();
         if (seg.isEmpty() || !seg.get(0).equals("settings")) return null;
-        MatrixCursor c = new MatrixCursor(new String[]{"default_profile", "auto_advance", "auto_advance_custom"});
+        MatrixCursor c = new MatrixCursor(new String[]{"default_profile", "auto_advance", "auto_advance_custom", "demo_active"});
         c.addRow(new Object[]{ProfileStore.defaultProfile(getContext()), ProfileStore.autoAdvance(getContext()),
-                ProfileStore.autoAdvanceCustom(getContext()) ? 1 : 0});
+                ProfileStore.autoAdvanceCustom(getContext()) ? 1 : 0, ProfileStore.demoActive(getContext())});
         return c;
     }
 
