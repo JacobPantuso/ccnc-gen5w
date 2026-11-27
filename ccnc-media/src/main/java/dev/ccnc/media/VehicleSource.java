@@ -14,10 +14,16 @@ import android.view.KeyEvent;
 import java.util.HashMap;
 import java.util.Map;
 
+import dev.ccnc.common.CarMedia;
+
 /**
- * Vehicle-backed media source. Transport goes out as global media key events
- * (AudioManager.dispatchMediaKeyEvent, API 19), which the stock HKMC players
- * already respond to. Now-playing metadata comes from a RemoteController
+ * Vehicle-backed media source. Transport goes the car's own way (dev.ccnc.common.CarMedia):
+ * next / previous as the panel's SEEK keys through the mode manager, which hands them to
+ * the key listener of whichever source is playing, and Bluetooth play / pause through the
+ * Bluetooth app's AVRCP service. The stock players (Bluetooth Audio, USB Music, Radio,
+ * CarPlay) register no Android media-button receiver, so global media key events
+ * (AudioManager.dispatchMediaKeyEvent) only remain as the fallback off the car and for
+ * play / pause on the other sources. Now-playing metadata comes from a RemoteController
  * registered on AudioManager; on stock HKMC builds that needs
  * MEDIA_CONTENT_CONTROL, so this may require installing as a system app on
  * the bench unit (NEMESIS root). When metadata is unavailable the demo
@@ -123,6 +129,8 @@ final class VehicleSource implements Media.Source, RemoteController.OnClientUpda
         android.content.IntentFilter f = new android.content.IntentFilter();
         for (String[] s : FEEDS) f.addAction(s[0]);
         ctx.registerReceiver(feed, f);
+        // Ready for a Bluetooth play / pause press (bound only while Bluetooth Audio is the source).
+        if (bluetooth()) CarMedia.btConnect(ctx);
         // Ask the running source app to send its current track.
         ctx.sendBroadcast(new Intent("com.hkmc.request.widgetupdate"));
         try {
@@ -144,12 +152,28 @@ final class VehicleSource implements Media.Source, RemoteController.OnClientUpda
             try { am.unregisterRemoteController(rc); } catch (Throwable ignored) {}
             registered = false;
         }
+        CarMedia.btDisconnect();
         listener = null;
     }
 
     @Override public boolean isVehicle() { return registered || receiving; }
 
     @Override public void command(int keyCode) {
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
+            if (CarMedia.seek(ctx, keyCode == KeyEvent.KEYCODE_MEDIA_NEXT)) return;
+        } else if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && bluetooth()) {
+            if (CarMedia.btPlayPause(ctx)) return;
+        }
+        mediaKey(keyCode);
+    }
+
+    /** Bluetooth Audio has the sound: from the mode manager, or from the last feed when it can't be read. */
+    private boolean bluetooth() {
+        int mode = CarMedia.currentMode(ctx);
+        return mode == CarMedia.MODE_BLUETOOTH || (mode < 0 && "Bluetooth Audio".equals(state.source));
+    }
+
+    private void mediaKey(int keyCode) {
         KeyEvent down = new KeyEvent(KeyEvent.ACTION_DOWN, keyCode);
         KeyEvent up = new KeyEvent(KeyEvent.ACTION_UP, keyCode);
         am.dispatchMediaKeyEvent(down);

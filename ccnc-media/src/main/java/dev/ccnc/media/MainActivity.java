@@ -20,6 +20,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.Toast;
 
 import java.io.InputStream;
 import java.util.HashMap;
@@ -114,12 +115,24 @@ public final class MainActivity extends Activity implements Media.Source.Listene
     }
 
     private void launchSource(String[] src) {
+        // Bluetooth Audio's screen isn't exported: the mode manager opens it, as the stock media list does.
+        if (dev.ccnc.common.CarMedia.BT_AUDIO_PKG.equals(src[1])) {
+            int r = dev.ccnc.common.CarMedia.launchMode(this, dev.ccnc.common.CarMedia.MODE_BLUETOOTH);
+            if (r == dev.ccnc.common.CarMedia.LAUNCHED) return;
+            if (r == dev.ccnc.common.CarMedia.NOT_AVAILABLE) {
+                Toast.makeText(this, "Connect a phone over Bluetooth to use Bluetooth Audio", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
         try {
             Intent i = new Intent(Intent.ACTION_MAIN);
             i.setComponent(new ComponentName(src[1], src[1] + src[2]));
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
-        } catch (ActivityNotFoundException e) { }
+        } catch (ActivityNotFoundException e) {
+        } catch (SecurityException e) {
+            Toast.makeText(this, src[0] + " can't be opened right now", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private Bitmap asset(String n) {

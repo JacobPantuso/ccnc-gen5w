@@ -128,10 +128,72 @@ final class AppRepo {
             }
             out.add(e);
         }
+        addHiddenLaunchers(pm, hidden, withHidden, out);
         addWeather(pm, hidden, withHidden, out);
         if (proj.none()) addProjectionPlaceholder(pm, hidden, withHidden, out);
         sort(out);
         return out;
+    }
+
+    /** Apps the stock launcher only shows through HMG-API's hooks: they have no LAUNCHER category. */
+    static final String[][] HOOKED_APPS = {
+            {"hmgapi.app", "hmgapi.app.MainActivity"},
+            {"com.nemesis.manager", "com.nemesis.manager.MainActivity"},
+    };
+
+    /**
+     * HMG-API, NEMESIS Manager and other mod apps: on the stock home screen HMG-API adds them to the launcher's own
+     * menu, because they deliberately have no LAUNCHER category (the stock launcher only shows its built-in list).
+     * A plain launcher query never sees them, so they're added here: the two known apps, the activities mods list
+     * under provides.launcher in /data/hmgapi/mods/<id>/mod.json (when readable), and any app installed by the
+     * owner (not part of the system image) that has a MAIN activity but no LAUNCHER one.
+     */
+    private void addHiddenLaunchers(PackageManager pm, Set<String> hidden, boolean withHidden, List<Entry> out) {
+        Set<String> have = new java.util.HashSet<String>();
+        for (Entry e : out) have.add(e.component.getPackageName());
+        java.util.LinkedHashSet<ComponentName> want = new java.util.LinkedHashSet<ComponentName>();
+        for (String[] a : HOOKED_APPS) want.add(new ComponentName(a[0], a[1]));
+        java.io.File[] mods = new java.io.File("/data/hmgapi/mods").listFiles();
+        if (mods != null) for (java.io.File m : mods) {
+            try {
+                java.io.File f = new java.io.File(m, "mod.json");
+                if (!f.canRead() || new java.io.File(m, ".disabled").exists()) continue;
+                byte[] b = new byte[(int) Math.min(f.length(), 256 * 1024)];
+                java.io.DataInputStream in = new java.io.DataInputStream(new java.io.FileInputStream(f));
+                try { in.readFully(b); } finally { in.close(); }
+                org.json.JSONObject prov = new org.json.JSONObject(new String(b, "UTF-8")).optJSONObject("provides");
+                org.json.JSONArray l = prov == null ? null : prov.optJSONArray("launcher");
+                for (int i = 0; l != null && i < l.length(); i++) {
+                    org.json.JSONObject o = l.optJSONObject(i);
+                    String pkg = o == null ? null : o.optString("package", null), cls = o == null ? null : o.optString("class", null);
+                    if (pkg == null || cls == null) continue;
+                    want.add(new ComponentName(pkg, cls.startsWith(".") ? pkg + cls : cls));
+                }
+            } catch (Throwable t) { /* unreadable or malformed: skip that mod */ }
+        }
+        // Owner-installed apps with only a MAIN activity (mod apps made for HMG-API's menu).
+        try {
+            for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN), 0)) {
+                android.content.pm.ApplicationInfo ai = ri.activityInfo.applicationInfo;
+                if ((ai.flags & (android.content.pm.ApplicationInfo.FLAG_SYSTEM | android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
+                if (!ri.activityInfo.exported || ri.activityInfo.packageName.startsWith("dev.ccnc.")) continue;
+                want.add(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name));
+            }
+        } catch (Throwable ignored) { }
+        for (ComponentName cn : want) {
+            if (have.contains(cn.getPackageName())) continue;                // already has a card (or another entry)
+            String key = cn.flattenToShortString();
+            if (Curated.SKIP.contains(key) || (!withHidden && hidden.contains(key))) continue;
+            android.content.pm.ActivityInfo ai;
+            try { ai = pm.getActivityInfo(cn, 0); } catch (Throwable t) { continue; }   // not installed
+            if (!ai.exported || !ai.enabled) continue;
+            CharSequence l = ai.loadLabel(pm);
+            String label = l == null || l.toString().trim().isEmpty() ? cn.getPackageName() : l.toString().trim();
+            Entry e = new Entry(cn, label, Icons.Kind.APP, ai.loadIcon(pm));
+            e.art = dev.ccnc.common.Art.icon(ctx, "themelayout");   // one icon set on every card, as for other apps
+            out.add(e);
+            have.add(cn.getPackageName());
+        }
     }
 
     /** Nothing connected: one card for the phone projection settings, as the stock home does. */

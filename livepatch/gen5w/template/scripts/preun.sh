@@ -16,7 +16,7 @@ listener_off
 for a in $APPS; do
     case ${a#*:} in dev.ccnc.climate|dev.ccnc.home) ;; *) pm uninstall "${a#*:}" >/dev/null 2>&1 ;; esac
 done
-for f in $HMG_FILES; do
+for f in $HMG_FILES $CONSENT_FILE; do
     m=$HS_MARKS/${f##*/}.md5; hs=/data/hmgapi/stock$f
     [ -f "$m" ] || continue
     [ "$(md5_of "$hs")" = "$(cat "$m")" ] && rm -f "$hs"

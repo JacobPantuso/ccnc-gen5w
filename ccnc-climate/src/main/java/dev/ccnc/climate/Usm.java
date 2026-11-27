@@ -87,6 +87,38 @@ final class Usm {
         } finally { d.recycle(); r.recycle(); }
     }
 
+    /**
+     * The unit's own com.hkmc.usm.IUSMService proxy, used by method name where the class is there, so a firmware
+     * that numbers the transactions differently still answers the right question. The recovered codes are the
+     * fallback (and are what was verified on the CEEV 250818 unit).
+     */
+    private Object named;
+    private Class<?> namedClass;
+    private boolean namedTried;
+    private final java.util.HashMap<String, Method> methods = new java.util.HashMap<String, Method>();
+
+    private int get(String name, int code) {
+        if (!namedTried) {
+            namedTried = true;
+            try {
+                named = Class.forName("com.hkmc.usm.IUSMService$Stub").getMethod("asInterface", IBinder.class).invoke(null, svc);
+                namedClass = Class.forName("com.hkmc.usm.IUSMService");
+            } catch (Throwable t) {
+                named = null;
+            }
+            Log.i(TAG, "reads by " + (named != null ? "method name" : "transaction code"));
+        }
+        if (named != null) {
+            try {
+                Method m = methods.get(name);
+                if (m == null) { m = namedClass.getMethod(name); methods.put(name, m); }
+                Object v = m.invoke(named);
+                if (v instanceof Integer) return (Integer) v;
+            } catch (Throwable ignored) { } // fall through to the code
+        }
+        return get(code);
+    }
+
     private int get(int code) {
         Parcel d = Parcel.obtain(), r = Parcel.obtain();
         try {
@@ -118,8 +150,12 @@ final class Usm {
     /** Re-read everything; logs changes (grep ccncUsm). */
     void read() {
         if (!connect()) return;
-        int[] n = {get(G_DRV_OPT), get(G_AST_OPT), get(G_RL_OPT), get(G_RR_OPT), get(G_DRV), get(G_AST), get(G_RL), get(G_RR),
-                get(G_SW_OPT), get(G_SW_INF), get(G_SW_STEP1), get(G_SW_STEP2)};
+        int[] n = {get("getFrontSeatHeat_DrvOption", G_DRV_OPT), get("getFrontSeatHeat_AstOption", G_AST_OPT),
+                get("getRearSeatHeat_LeftOption", G_RL_OPT), get("getRearSeatHeat_RightOption", G_RR_OPT),
+                get("getFrontSeatHeat_DrvState", G_DRV), get("getFrontSeatHeat_AstState", G_AST),
+                get("getRearSeatHeat_LeftState", G_RL), get("getRearSeatHeat_RightState", G_RR),
+                get("getSWRC_SteeringwheelHeatingOpt", G_SW_OPT), get("getSWRC_SteeringwheelHeatingSWInf", G_SW_INF),
+                get("getSWRC_SteeringwheelHeatIndStep1", G_SW_STEP1), get("getSWRC_SteeringwheelHeatIndStep2", G_SW_STEP2)};
         int[] o = {drvOpt, astOpt, rlOpt, rrOpt, drv, ast, rl, rr, swOpt, swInf, swStep1, swStep2};
         boolean ch = false;
         for (int i = 0; i < n.length; i++) if (n[i] != o[i]) ch = true;
@@ -153,8 +189,12 @@ final class Usm {
     static int stateOf(boolean heat, int level) { return level <= 0 ? 2 : (heat ? 5 + level : 2 + level); }
 
     /** Stock cycle (SeatHeatVentPopup arrays): heat 8,7,6,2 and vent 5,4,3,2 (3 steps), 8,6,2 / 5,3,2 with 2 steps; off or other mode starts at the first. */
-    static int nextState(int cur, boolean heat) {
-        int[] arr = heat ? new int[]{8, 7, 6, 2} : new int[]{5, 4, 3, 2};
+    static int nextState(int cur, boolean heat) { return nextState(cur, heat, 3); }
+
+    /** {@code steps}: 3, or 2 for a seat with low / high only (odd USM option, see Equipment). */
+    static int nextState(int cur, boolean heat, int steps) {
+        int[] arr = heat ? (steps == 2 ? new int[]{8, 6, 2} : new int[]{8, 7, 6, 2})
+                : (steps == 2 ? new int[]{5, 3, 2} : new int[]{5, 4, 3, 2});
         for (int i = 0; i < arr.length; i++) if (arr[i] == cur) return arr[(i + 1) % arr.length];
         return arr[0];
     }

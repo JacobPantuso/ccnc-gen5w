@@ -33,7 +33,7 @@ public final class UserProfileSection extends Section {
 
     private static final String PKG = "com.hkmc.system.app.userprofile";
     private static final int[] AUTO = {3, 5, 10, -1};
-    private static final String[] AUTO_LABELS = {"3 s", "5 s", "10 s", "Off (Wait for a Tap)"};
+    private static final String[] AUTO_LABELS = {"3s", "5s", "10s", "Off (Wait for a Tap)"};
 
     @Override public void build(Category c) {
         final Context x = c.context();

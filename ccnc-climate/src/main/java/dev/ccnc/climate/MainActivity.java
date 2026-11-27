@@ -82,8 +82,11 @@ public final class MainActivity extends Activity implements Climate.Source.Liste
         super.onDestroy();
     }
 
+    private final Climate.Hold hold = new Climate.Hold();
+
     @Override public void onClimate(Climate.State s) {
         if (source.isVehicle()) vehicleState = s.copy();
+        if (source.isVehicle() && !hold.accept(s)) return;   // a tap the car hasn't applied yet stays on screen
         state = s;
         render();
     }
@@ -92,7 +95,8 @@ public final class MainActivity extends Activity implements Climate.Source.Liste
     @Override public void onChanged() {
         if (source.isVehicle()) {
             if (control && vehicleState != null) {
-                datc.sendChanges(vehicleState, state); // the next reading from the car replaces the optimistic state
+                hold.tapped(state);
+                datc.sendChanges(vehicleState, state); // shown at once; the car's reading takes over once it matches
             } else { // view only: put back what the car reports
                 if (vehicleState != null) state = vehicleState.copy();
                 Toast.makeText(this, control ? "This car doesn't allow climate control from the head unit"

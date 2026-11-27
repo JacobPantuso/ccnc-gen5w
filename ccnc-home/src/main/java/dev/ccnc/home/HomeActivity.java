@@ -687,6 +687,16 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
             if (!Projection.openAndroidAuto(this)) Toast.makeText(this, "Android Auto can't be opened right now", Toast.LENGTH_SHORT).show();
             return;
         }
+        // Bluetooth Audio's screen isn't exported either: the mode manager opens it, as the stock home does.
+        if (dev.ccnc.common.CarMedia.BT_AUDIO_PKG.equals(e.component.getPackageName())) {
+            int r = dev.ccnc.common.CarMedia.launchMode(this, dev.ccnc.common.CarMedia.MODE_BLUETOOTH);
+            if (r == dev.ccnc.common.CarMedia.LAUNCHED) return;
+            if (r == dev.ccnc.common.CarMedia.NOT_AVAILABLE) {
+                Toast.makeText(this, "Connect a phone over Bluetooth to use Bluetooth Audio", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // No mode service (not on the car): the plain launch below, which reports its own failure.
+        }
         Intent i = new Intent(Intent.ACTION_MAIN);
         i.addCategory(Intent.CATEGORY_LAUNCHER);
         // The stock media app is replaced by ccNC Media wherever a card points at it.

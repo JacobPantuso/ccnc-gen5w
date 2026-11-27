@@ -66,6 +66,8 @@
         <receiver android:name=".StartupProfile" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- soft start: the car's ACC on again after sleep; SystemUI shows its start-up screen again -->
+                <action android:name="com.hkmc.intent.action.ACTION_ACC_STATUS_CHANGED" />
             </intent-filter>
         </receiver>
         <!-- The car's NAV key -> ccNC Navigation, the MEDIA key's source list -> ccNC Media (HardKeyReceiver).
@@ -76,6 +78,8 @@
                 <action android:name="com.mobis.intent.action.MEDIAGATE_SHORTCUT" />
             </intent-filter>
         </receiver>
+        <!-- Emulator test of the bottom notice popup (climate, USB debugging, seat memory); ignored unless the build is debuggable (ClimateNotice.Test). -->
+        <receiver android:name=".ClimateNotice$Test" android:exported="true" />
         <!-- Finishes an uninstall of ccNC for Gen5W after the restart (UninstallCleanup). -->
         <receiver android:name=".UninstallCleanup" android:exported="true">
             <intent-filter>

@@ -21,6 +21,18 @@ for s in $STEPS; do
     chmod 644 "$CCNC_DIR/livepatch/$n"
 done
 
+# The start-up screen step's md5 record (livepatch/consent.md5): ccNC only shows its start-up chooser while the mounted
+# SystemUI.odex has that md5. bin/lp-ccnc writes it, but not when NEMESIS reused a cached result: then run the tool
+# again on the stock file (same input, same output) just for the record. No record = the car's own screen, as stock.
+if [ "$(cat "$CCNC_DIR/livepatch/consent" 2>/dev/null)" = applied ] && [ ! -s "$CCNC_DIR/livepatch/consent.md5" ]; then
+    tmp=/data/local/tmp/ccnc-consent.$$
+    rm -f "$tmp" "$tmp.out"
+    nemesis livepatch stock "$CONSENT_FILE" "$tmp" >/dev/null 2>&1 || { ! grep -q " $CONSENT_FILE " /proc/mounts && cp "$CONSENT_FILE" "$tmp"; }
+    [ -s "$tmp" ] && sh ./bin/lp-ccnc consent "$tmp" "$tmp.out" >/dev/null 2>&1
+    rm -f "$tmp" "$tmp.out"
+    [ -s "$CCNC_DIR/livepatch/consent.md5" ] && log "start-up screen: md5 record written" || log "start-up screen: no md5 record; the car's own screen stays"
+fi
+
 # HMG-API reads these files by path, so it sees LivePatch's patched copies and would turn hooks off (all of them for
 # the framework file, wireless CarPlay with it) unless the stock file is at /data/hmgapi/stock/<path>. The stock bytes
 # come from `nemesis livepatch stock` (also while a patched copy is mounted), else from the file if nothing is mounted
@@ -29,7 +41,11 @@ done
 # other copy is HMG-API's and left alone.
 if [ -d /data/hmgapi ]; then
     mkdir -p "$HS_MARKS"
-    for f in $HMG_FILES; do
+    hmg=$HMG_FILES
+    for j in /data/hmgapi/state/files.json /data/hmgapi/maps/*/*/*/*/car.json; do
+        [ -f "$j" ] && grep -q "\"$CONSENT_FILE\"" "$j" 2>/dev/null && { hmg="$hmg $CONSENT_FILE"; log "HMG-API's map lists $CONSENT_FILE"; break; }
+    done
+    for f in $hmg; do
         hs=/data/hmgapi/stock$f; m=$HS_MARKS/${f##*/}.md5; tmp=/data/local/tmp/ccnc-stock.$$
         rm -f "$tmp"
         nemesis livepatch stock "$f" "$tmp" >/dev/null 2>&1 || { ! grep -q " $f " /proc/mounts && cp "$f" "$tmp"; }

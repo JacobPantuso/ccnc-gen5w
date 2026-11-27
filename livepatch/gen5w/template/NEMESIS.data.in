@@ -6,7 +6,7 @@ name=ccNC for Gen5W
 type=application
 package-version=@VERSION@
 short-desc="ccNC-style home screen and apps for Gen5W, all in one."
-detailed-desc="ccNC Home and apps (Settings, Climate, EV, Media, Radio, Phone, Weather, Navigation, Voice Memo, Profile) plus LivePatch changes, no /system writes: climate/seat buttons open ccNC Climate, no Gen5W volume strip or side popups, ccNC startup video."
+detailed-desc="ccNC Home and ccNC apps for Gen5W: Setup, Climate, EV, Media, Radio, Phone, Weather, Navigation, Voice Memo and Profile. Also a ccNC start-up profile screen, ccNC volume and climate popups, ccNC Climate on the climate buttons and the ccNC start-up video."
 os=any
 models=any
 depends=usb-handler@>=@NEMESIS_MIN@,!ccnc.apps,!ccnc.home,!ccnc.volume,!ccnc.sideosd,!ccnc.climatebtn,!ccnc.welcome,!ccnc.volume.restore,!ccnc.sideosd.restore,!ccnc.climatebtn.restore
@@ -22,7 +22,7 @@ uid=root
 ; Each step finds its code by stable class names / strings, not by firmware-specific names. On a firmware
 ; where a step doesn't fit, its tool leaves the file stock (exit 10) instead of failing the whole install;
 ; a tool error (crash, bad file) stops the install before anything is committed.
-; No stop/restart: all four are read at boot, so they apply with NEMESIS's single restart after the queue.
+; No stop/restart: all five are read at boot, so they apply with NEMESIS's single restart after the queue.
 
 ; Gen5W volume strip off (ccNC Home shows its own): MicomVolumePanel.onShowVolumeChanged* return at once.
 ; Also skips the system's own "AV off" OSD at boot (ModeManagerService.handleAvOff -> showNotification(1000)),
@@ -49,6 +49,17 @@ target=/system/app/HKMC_Climate.odex
 engine=exec
 tool=bin/lp-ccnc
 args=climate
+optional=1
+
+; Start-up profile screen (SystemUI's ConsentScreen): its window goes one layer lower (still under the rear camera)
+; so ccNC Profile's start-up chooser can sit on top, and HIDE_CONSENT_SCREEN only continues when the screen's own
+; 10 s timer would (no reverse / early camera, ACC and power state, no valet, no language dialog). Without ccNC's
+; chooser the car's own screen shows and works as before. See private/systemui/DESIGN.txt.
+[patch.5]
+target=/system/priv-app/SystemUI.odex
+engine=exec
+tool=bin/lp-ccnc
+args=consent
 optional=1
 
 ; ccNC startup video in the stock welcome app.

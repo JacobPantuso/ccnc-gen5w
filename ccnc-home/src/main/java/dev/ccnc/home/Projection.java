@@ -81,6 +81,9 @@ final class Projection {
      * key does; failing that, the same GPM_SHORTCUT straight to Android Auto's exported service. False if neither worked.
      */
     static boolean openAndroidAuto(Context ctx) {
+        // launchMode is what the stock launcher uses and has no caller check; changeMode only works for the app that
+        // holds audio focus, so it stays as the second try.
+        if (dev.ccnc.common.CarMedia.launchMode(ctx, MODE_GPM) == dev.ccnc.common.CarMedia.LAUNCHED) return true;
         try {
             Class<?> c = Class.forName("com.hkmc.mode.ModeManager");
             Object mm = c.getConstructor(Context.class).newInstance(ctx);

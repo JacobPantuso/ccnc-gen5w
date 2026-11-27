@@ -26,6 +26,10 @@ import dev.ccnc.common.Palette;
  *
  * <p>Not on this screen in ccNC, so not here: recirculation, rear defrost and power (physical buttons),
  * and "driver only" (no state for it yet). All touch targets are rebuilt on every draw.
+ *
+ * <p>Controls the car doesn't have are left out and the rest re-flowed ({@link Equipment}): the seat rows at the
+ * sides close up and stay centred, a side with nothing loses its divider, a single-zone car has one temperature and
+ * no SYNC, a manual climate has no AUTO, and the bottom bar spreads what is left evenly. The seat popup does the same.
  */
 final class ClimateView extends View {
 
@@ -38,6 +42,8 @@ final class ClimateView extends View {
 
     private final Callback cb;
     private Climate.State s = new Climate.State();
+    /** What this car has; controls it doesn't have aren't drawn. Everything until the car has been read. */
+    private Equipment eq = Equipment.detect(s);
     private boolean popup, seatPopup;
 
     /** Opens the ccNC seat heat/vent popup (also what the car's seat buttons open). */
@@ -81,6 +87,7 @@ final class ClimateView extends View {
 
     void setState(Climate.State s, boolean readOnly) {
         this.s = s;
+        eq = Equipment.of(getContext(), s);
         invalidate();
     }
 
@@ -200,14 +207,15 @@ final class ClimateView extends View {
         }
         if (s.modeKnown) hit(box(756f, 233f, 472f, 310f), false, new Runnable() { @Override public void run() { popup = true; } });
 
-        img(c, "clm_ic_divider_h", 505f, 106f, 1f, 255);
-        img(c, "clm_ic_divider_h", 1414f, 106f, 1f, 255);
+        // A side with no seat controls has no divider either: the cabin area simply runs to the edge.
+        boolean drvSide = eq.wheel || eq.driverSeat(), astSide = eq.passengerSeat();
+        if (rhd ? astSide : drvSide) img(c, "clm_ic_divider_h", 505f, 106f, 1f, 255);
+        if (rhd ? drvSide : astSide) img(c, "clm_ic_divider_h", 1414f, 106f, 1f, 255);
 
         fan(c);
         temp(c, true);
-        temp(c, false);
-        seatButtons(c, true);
-        seatButtons(c, false);
+        if (eq.dual) temp(c, false);
+        seatButtons(c);
         bottomBar(c, mode);
 
         if (popup) popup(c, mode);
@@ -231,7 +239,7 @@ final class ClimateView extends View {
         hit(grow(box(l, t, 89f, 89f), 22f), true, new Runnable() { @Override public void run() {
             s.auto = false; s.power = true; s.blower = Math.max(0, s.blower - 1); } });
         hit(grow(box(l + 357f, t, 89f, 89f), 22f), true, new Runnable() { @Override public void run() {
-            s.auto = false; s.power = true; s.blower = Math.min(8, s.blower + 1); } });
+            s.auto = false; s.power = true; s.blower = Math.min(eq.fanMax, s.blower + 1); } });
     }
 
     /** One temperature column: up arrow, value, down arrow. */
@@ -263,13 +271,32 @@ final class ClimateView extends View {
         else s.passengerTemp = v;
     }
 
-    /** Heat (toggle 02) and vent (toggle 03) for one seat, each 120 x 85 with three level bars on top. */
-    private void seatButtons(Canvas c, final boolean driver) {
-        final float x = (driver != rhd) ? 192.5f : 1607.5f;
-        seat(c, x, 244f + 115f, driver ? s.driverSeatHeat : s.passengerSeatHeat, true, driver);
-        seat(c, x, 244f + 230f, driver ? s.driverSeatVent : s.passengerSeatVent, false, driver);
-        if (driver && s.wheelAvail) wheel(c, x, 244f);
+    /**
+     * The seat controls at the far left and right, each 120 x 85 with its level bars on top: wheel heat (driver's
+     * side only), seat heat (toggle 02) and seat vent (toggle 03). Both sides share the rows, so heat sits opposite
+     * heat. Only the rows this car has are there, stacked 115 apart and centred on the ccNC block (all three:
+     * y244 / 359 / 474, ccNC's own positions).
+     */
+    private void seatButtons(Canvas c) {
+        boolean rowWheel = eq.wheel, rowHeat = eq.drvHeat || eq.astHeat, rowVent = eq.drvVent || eq.astVent;
+        int n = (rowWheel ? 1 : 0) + (rowHeat ? 1 : 0) + (rowVent ? 1 : 0);
+        if (n == 0) return;
+        float y = 401.5f - (n * 85f + (n - 1) * 30f) / 2f;
+        final float dx = rhd ? 1607.5f : 192.5f, px = rhd ? 192.5f : 1607.5f;   // driver's and passenger's side
+        if (rowWheel) { wheel(c, dx, y); y += 115f; }
+        if (rowHeat) {
+            if (eq.drvHeat) seat(c, dx, y, s.driverSeatHeat, true, true);
+            if (eq.astHeat) seat(c, px, y, s.passengerSeatHeat, true, false);
+            y += 115f;
+        }
+        if (rowVent) {
+            if (eq.drvVent) seat(c, dx, y, s.driverSeatVent, false, true);
+            if (eq.astVent) seat(c, px, y, s.passengerSeatVent, false, false);
+        }
     }
+
+    /** Level bars to light for a level 0..3: with 2 levels (low / high, levels 1 and 3) that is 0, 1 or 2 bars. */
+    private static int lit(int level, int steps) { return steps == 2 ? (level >= 3 ? 2 : level >= 1 ? 1 : 0) : level; }
 
     /** Steering-wheel warmer (ccNC clm_ic_toggle_01): one indicator bar, press toggles it. */
     private void wheel(Canvas c, float x, float y) {
@@ -302,12 +329,14 @@ final class ClimateView extends View {
         RectF b = box(x, y, 120f, 85f);
         String icon = "clm_ic_toggle_0" + (heat ? "2" : "3") + (level > 0 ? "_s" : "");
         img(c, icon, x + 25f, y + 15f, 70f, 255);
-        for (int i = 0; i < 3; i++) indicator(c, x + 16f + i * 32f, y + 10f, 24f, i < level, true);
+        final int steps = driver ? eq.drvSteps : eq.astSteps;   // 3 bars of 24, or 2 of 40, across the same 88
+        if (steps == 2) for (int i = 0; i < 2; i++) indicator(c, x + 16f + i * 48f, y + 10f, 40f, i < lit(level, 2), true);
+        else for (int i = 0; i < 3; i++) indicator(c, x + 16f + i * 32f, y + 10f, 24f, i < level, true);
         hit(b, true, new Runnable() { @Override public void run() {
-            // Stock cycle (SeatHeatVentPopup): heat 8,7,6,2 / vent 5,4,3,2 on the SEAT_STATES values.
+            // Stock cycle (SeatHeatVentPopup): heat 8,7,6,2 / vent 5,4,3,2 on the SEAT_STATES values (8,6,2 / 5,3,2 with 2 levels).
             int cur = driver ? (s.driverSeatHeat > 0 ? Usm.stateOf(true, s.driverSeatHeat) : Usm.stateOf(false, s.driverSeatVent))
                     : (s.passengerSeatHeat > 0 ? Usm.stateOf(true, s.passengerSeatHeat) : Usm.stateOf(false, s.passengerSeatVent));
-            int nx = Usm.nextState(cur, heat);
+            int nx = Usm.nextState(cur, heat, steps);
             if (driver) { s.driverSeatHeat = Usm.heatLevel(nx); s.driverSeatVent = Usm.ventLevel(nx); }
             else { s.passengerSeatHeat = Usm.heatLevel(nx); s.passengerSeatVent = Usm.ventLevel(nx); }
         } });
@@ -340,27 +369,51 @@ final class ClimateView extends View {
         img(c, "clm_ic_close", 1778f, 98f, 40f, 255);
         hit(close, false, new Runnable() { @Override public void run() { closeSeats(); } });
 
-        boolean rl = Climate.State.rearExists(s.rlOpt), rr = Climate.State.rearExists(s.rrOpt);
-        boolean middle = rl || rr || s.wheelAvail;
-
-        // Driver: seat art, then its buttons; passenger mirrored.
+        // Only what the car has (Equipment): a front seat without heating or ventilation, the rear seats and the
+        // wheel warmer are left out, and the rest closes up.
+        boolean rl = eq.rearLeft(), rr = eq.rearRight();
+        boolean middle = rl || rr || eq.wheel;
         // Right-hand drive: the passenger on the left, the driver on the right.
-        frontSeat(c, rhd ? 1 : 0, 110f, 430f, true, !rhd);
-        frontSeat(c, rhd ? 0 : 1, middle ? 1240f : 1010f, 1510f, false, rhd);
+        boolean leftSeat = rhd ? eq.passengerSeat() : eq.driverSeat(), rightSeat = rhd ? eq.driverSeat() : eq.passengerSeat();
+
+        if (!leftSeat && !rightSeat && !middle) {
+            label(c, "This car has no seat heating or ventilation", 960f, 340f, 34f, Palette.SUBTEXT, Fonts.REGULAR);
+            return;
+        }
+
+        // Left seat: seat art, then its buttons; the right seat mirrored.
+        if (leftSeat) frontSeat(c, rhd ? 1 : 0, 110f, 430f, true, !rhd);
+        if (rightSeat) frontSeat(c, rhd ? 0 : 1, middle ? 1240f : 1010f, 1510f, false, rhd);
 
         if (middle) {
-            img(c, "clm_ic_divider_h", 700f, 120f, 1f, 160);
-            img(c, "clm_ic_divider_h", 1200f, 120f, 1f, 160);
+            if (leftSeat) img(c, "clm_ic_divider_h", 700f, 120f, 1f, 160);
+            if (rightSeat) img(c, "clm_ic_divider_h", 1200f, 120f, 1f, 160);
             float cx = 950f;
+            // Rear seats: a heat row and / or a vent row. With both rows and the wheel below, everything is a size smaller.
+            boolean rowHeat = eq.rlHeat || eq.rrHeat, rowVent = eq.rlVent || eq.rrVent;
+            boolean tight = rowHeat && rowVent && eq.wheel;
+            float tw = tight ? 180f : 220f, th = tw * 146f / 280f;
             if (rl || rr) {
                 label(c, "Rear Seats", cx, 140f, 32f, Palette.TEXT, Fonts.SEMIBOLD);
-                if (rl) seatTile(c, rr ? 735f : 850f, 200f, 220f, 150f, 2, true, "Left");
-                if (rr) seatTile(c, rl ? 965f : 850f, 200f, 220f, 150f, 3, true, "Right");
+                float lx = rr ? 955f - tw : 960f - tw / 2f, rx = rl ? 965f : 960f - tw / 2f;
+                float y = tight ? 180f : 200f;
+                if (rowHeat) {
+                    if (eq.rlHeat) seatTile(c, lx, y, tw, 150f, 2, true, null);
+                    if (eq.rrHeat) seatTile(c, rx, y, tw, 150f, 3, true, null);
+                    y += th + 10f;
+                }
+                if (rowVent) {
+                    if (eq.rlVent) seatTile(c, lx, y, tw, 150f, 2, false, null);
+                    if (eq.rrVent) seatTile(c, rx, y, tw, 150f, 3, false, null);
+                    y += th + 10f;
+                }
+                if (rl) label(c, "Left", lx + tw / 2f, y + 16f, 26f, Palette.SUBTEXT, Fonts.REGULAR);
+                if (rr) label(c, "Right", rx + tw / 2f, y + 16f, 26f, Palette.SUBTEXT, Fonts.REGULAR);
             }
-            if (s.wheelAvail) {
-                float wy = rl || rr ? 440f : 200f;
+            if (eq.wheel) {
+                float wy = !(rl || rr) ? 200f : tight ? 486f : 440f;
                 label(c, "Steering Wheel", cx, wy - 42f, 32f, Palette.TEXT, Fonts.SEMIBOLD);
-                wheelTile(c, 840f, wy, 220f, 150f);
+                wheelTile(c, cx - tw / 2f, wy, tw, 150f);
             }
         }
     }
@@ -369,14 +422,19 @@ final class ClimateView extends View {
     /** {@code left}: on the left half of the popup (art, then buttons); {@code driver}: the driver's seat. */
     private void frontSeat(Canvas c, final int seat, float artX, float btnX, boolean left, boolean driver) {
         int h = level(seat, true), v = level(seat, false);
+        boolean heat = eq.heat(seat), vent = eq.vent(seat);
         String who = left ? "driver" : "passenger";   // seat art drawn for that side of the screen
         String art = h > 0 ? "set_bg_" + who + "_heat_0" + Math.min(3, h) : v > 0 ? "set_bg_" + who + "_vent_0" + Math.min(3, v) : "set_bg_" + who + "_seat";
         float ax = left ? artX : btnX;   // right half: art right of its buttons
         float bx = left ? btnX : artX;
         img(c, art, ax, 190f, 300f, 255);
         label(c, driver ? "Driver" : "Passenger", ax + 150f, 140f, 32f, Palette.TEXT, Fonts.SEMIBOLD);
-        seatTile(c, bx, 200f, 240f, 150f, seat, true, null);
-        seatTile(c, bx, 360f, 240f, 150f, seat, false, null);
+        if (heat && vent) {
+            seatTile(c, bx, 200f, 240f, 150f, seat, true, null);
+            seatTile(c, bx, 360f, 240f, 150f, seat, false, null);
+        } else {
+            seatTile(c, bx, 280f, 240f, 150f, seat, heat, null);   // heating only (or ventilation only): one button, centred
+        }
     }
 
     /** ccNC seat button (set_btn_bg_seat): icon, three level gauges (orange heat / blue vent), optional caption. */
@@ -393,13 +451,14 @@ final class ClimateView extends View {
         float bh = w * 146f / 280f;
         String icon = seat >= 2 ? "clm_ic_toggle_0" + (heat ? "2" : "3") + "_r" + (lv > 0 ? "_s" : "")
                 : "clm_ic_seat_" + (heat ? "heat" : "vent") + (seat == 0 ? "_l" : "_r");
-        float is = seat >= 2 ? 64f : 70f;
+        float is = (seat >= 2 ? 64f : 70f) * Math.min(1f, w / 220f);   // smaller on the tight rear tiles
         img(c, icon, x + (w - is) / 2f, y + bh * 0.16f, is, lv > 0 || seat < 2 ? 255 : 200);
-        gauges(c, x + w / 2f, y + bh * 0.78f, lv, heat ? HEAT : VENT);
+        final int steps = eq.steps(seat);
+        gauges(c, x + w / 2f, y + bh * 0.78f, lit(lv, steps), heat ? HEAT : VENT, steps);
         if (caption != null) label(c, caption, x + w / 2f, y + bh + 26f, 26f, Palette.SUBTEXT, Fonts.REGULAR);
         hit(b, true, new Runnable() { @Override public void run() {
             int hh = level(seat, true), vv = level(seat, false);
-            int nx = Usm.nextState(hh > 0 ? Usm.stateOf(true, hh) : Usm.stateOf(false, vv), heat);
+            int nx = Usm.nextState(hh > 0 ? Usm.stateOf(true, hh) : Usm.stateOf(false, vv), heat, steps);
             setLevel(seat, Usm.heatLevel(nx), Usm.ventLevel(nx));
         } });
     }
@@ -415,16 +474,18 @@ final class ClimateView extends View {
             line.setStrokeWidth(Math.max(1f, 2f * k));
             c.drawRoundRect(box(x + 2f, y + 2f, w - 4f, bh - 4f), 22f * k, 22f * k, line);
         }
-        img(c, on ? "clm_ic_toggle_01_s" : "clm_ic_toggle_01", x + (w - 64f) / 2f, y + bh * 0.16f, 64f, 255);
+        float is = 64f * Math.min(1f, w / 220f);
+        img(c, on ? "clm_ic_toggle_01_s" : "clm_ic_toggle_01", x + (w - is) / 2f, y + bh * 0.16f, is, 255);
         r.set(ox + (x + w / 2f - 30f) * k, oy + (y + bh * 0.78f) * k, ox + (x + w / 2f + 30f) * k, oy + (y + bh * 0.78f + 6f) * k);
         fill.setColor(on ? HEAT : GAUGE_OFF);
         c.drawRoundRect(r, 3f * k, 3f * k, fill);
         hit(b, true, new Runnable() { @Override public void run() { s.wheelHeat = !s.wheelHeat; } });
     }
 
-    private void gauges(Canvas c, float cx, float y, int level, int color) {
-        float bw = 34f, gap = 8f, l = cx - (3 * bw + 2 * gap) / 2f;
-        for (int i = 0; i < 3; i++) {
+    /** {@code n} gauges (3, or 2 for a 2-level seat), the first {@code level} of them lit. */
+    private void gauges(Canvas c, float cx, float y, int level, int color, int n) {
+        float bw = 34f, gap = 8f, l = cx - (n * bw + (n - 1) * gap) / 2f;
+        for (int i = 0; i < n; i++) {
             r.set(ox + (l + i * (bw + gap)) * k, oy + y * k, ox + (l + i * (bw + gap) + bw) * k, oy + (y + 6f) * k);
             fill.setColor(i < level ? color : GAUGE_OFF);
             c.drawRoundRect(r, 3f * k, 3f * k, fill);
@@ -437,6 +498,19 @@ final class ClimateView extends View {
      */
     private float mx(float x, float w) { return rhd ? 1920f - x - w : x; }
 
+    /**
+     * Left edge of bottom-bar item {@code i} of {@code n} (after the back button), {@code w} wide. With all six
+     * (AUTO, OFF, seats, air flow, A/C, SYNC) each sits at its ccNC position, centre {@code ccncCx}; when the car
+     * lacks some, what is left is spread evenly over the same stretch (x172 to x1878). Mirrored for right-hand drive.
+     */
+    private float slot(int i, int n, float ccncCx, float w) {
+        float cx = n == 6 ? ccncCx : 172f + 1706f * (i + 0.5f) / n;
+        return mx(cx - w / 2f, w);
+    }
+
+    /** Centre of the air-flow preview in the bottom bar: the mode popup points at it. */
+    private float flowCx = 1247f;
+
     private void bottomBar(Canvas c, int mode) {
         img(c, "clm_ic_divider_w", 0f, 620f, 1920f, 255);
 
@@ -446,25 +520,32 @@ final class ClimateView extends View {
         imgChrome(c, "back", bx + 21f, 638f - 3f, 80f);
         hit(grow(back, 12f), false, new Runnable() { @Override public void run() { cb.onBack(); } });
 
-        toggle(c, mx(172f, 220f), 637f, "AUTO", s.auto && s.power, new Runnable() { @Override public void run() {
+        // OFF, air flow and A/C are on every car; AUTO, the seat popup and SYNC only where the car has them.
+        boolean seatPop = eq.anySeatControl();
+        int n = 3 + (eq.auto ? 1 : 0) + (seatPop ? 1 : 0) + (eq.dual ? 1 : 0), i = 0;
+
+        if (eq.auto) toggle(c, slot(i++, n, 282f, 220f), 637f, "AUTO", s.auto && s.power, new Runnable() { @Override public void run() {
             s.auto = !s.auto; s.power = true; if (s.auto) s.blower = Math.max(1, s.blower); } });
 
         boolean off = !s.power || (s.blower == 0 && !s.auto);
-        float ofx = mx(444f, 220f);
+        float ofx = slot(i++, n, 554f, 220f);
         RectF offBox = box(ofx, 637f, 220f, 86f);
         label(c, "OFF", ofx + 110f, 620f + 35f + 23.5f, 30f, Palette.TEXT, Fonts.REGULAR);
         hit(offBox, true, new Runnable() { @Override public void run() { s.auto = false; s.blower = 0; } });
 
         // Seats: opens the seat popup (rear seats and wheel included).
-        float sx = mx(760f, 220f);
-        RectF seats = box(sx, 637f, 220f, 78f);
-        if (pressed(seats)) { fill.setColor(Palette.PRESS); c.drawRoundRect(seats, 20f * k, 20f * k, fill); }
-        boolean anySeat = s.rearLeftHeat + s.rearLeftVent + s.rearRightHeat + s.rearRightVent > 0;
-        img(c, anySeat ? "clm_ic_toggle_02_r_s" : "clm_ic_toggle_02_r", sx + 75f, 641f, 70f, 255);
-        hit(seats, false, new Runnable() { @Override public void run() { seatPopup = true; } });
+        if (seatPop) {
+            float sx = slot(i++, n, 870f, 220f);
+            RectF seats = box(sx, 637f, 220f, 78f);
+            if (pressed(seats)) { fill.setColor(Palette.PRESS); c.drawRoundRect(seats, 20f * k, 20f * k, fill); }
+            boolean anySeat = s.rearLeftHeat + s.rearLeftVent + s.rearRightHeat + s.rearRightVent > 0;
+            img(c, anySeat ? "clm_ic_toggle_02_r_s" : "clm_ic_toggle_02_r", sx + 75f, 641f, 70f, 255);
+            hit(seats, false, new Runnable() { @Override public void run() { seatPopup = true; } });
+        }
 
         // The air-flow preview doubles as the mode popup button.
-        float px = mx(1154f, 186f);
+        float px = slot(i++, n, 1247f, 186f);
+        flowCx = px + 93f;
         RectF pv = box(px, 628f, 186f, 92f);
         if (pressed(pv)) { fill.setColor(Palette.PRESS); c.drawRoundRect(pv, 20f * k, 20f * k, fill); }
         img(c, "clm_ic_seat_off", px, 628f, 186f, 255);
@@ -475,8 +556,8 @@ final class ClimateView extends View {
         }
         if (s.modeKnown) hit(pv, false, new Runnable() { @Override public void run() { popup = !popup; } });
 
-        toggle(c, mx(1392f, 220f), 637f, "A/C", s.ac && s.power, new Runnable() { @Override public void run() { s.ac = !s.ac; } });
-        toggle(c, mx(1658f, 220f), 637f, "SYNC", !s.dual, new Runnable() { @Override public void run() {
+        toggle(c, slot(i++, n, 1502f, 220f), 637f, "A/C", s.ac && s.power, new Runnable() { @Override public void run() { s.ac = !s.ac; } });
+        if (eq.dual) toggle(c, slot(i++, n, 1768f, 220f), 637f, "SYNC", !s.dual, new Runnable() { @Override public void run() {
             s.dual = !s.dual; if (!s.dual) s.passengerTemp = s.driverTemp; } });
     }
 
@@ -521,7 +602,7 @@ final class ClimateView extends View {
         line.setColor(Palette.BORDER);
         line.setStrokeWidth(Math.max(1f, 2f * k));
         c.drawRoundRect(panel, 24f * k, 24f * k, line);
-        img(c, "clm_bg_set_polygon", 1221f, 618f, 19f, 255);
+        img(c, "clm_bg_set_polygon", flowCx - 26f, 618f, 19f, 255);   // x1221 in ccNC's own layout
         for (int i = 0; i < POPUP_MODES.length; i++) {
             final int m = POPUP_MODES[i];
             boolean on = m == mode;

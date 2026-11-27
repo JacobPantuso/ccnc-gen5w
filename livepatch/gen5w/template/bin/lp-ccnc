@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# NEMESIS LivePatch exec tool: lp-ccnc <mode> <in> <out>   (mode: volume | sideosd | climate)
+# NEMESIS LivePatch exec tool: lp-ccnc <mode> <in> <out>   (mode: volume | sideosd | climate | consent)
 # LivePatch runs it as root from the package folder while it prepares the install (before any hook).
 # Exit 0: <out> written; 10: leave <in> as it is (already patched, or this firmware doesn't fit: the apps still
 # install and that file stays stock); anything else stops the install (a tool error), nothing is committed.
@@ -13,7 +13,19 @@ mark() {
     echo "$2" > "$LPD/$1" 2>/dev/null && chmod 644 "$LPD/$1" 2>/dev/null
     return 0
 }
-case "$mode" in volume|sideosd|climate) ;; *) echo "lp-ccnc: unknown mode '$mode'"; exit 1 ;; esac
+# consent (SystemUI's start-up profile screen) also leaves $LPD/consent.md5 = the md5 of the patched file. ccNC only
+# shows its start-up chooser, and only asks the screen to continue, while /system/priv-app/SystemUI.odex has exactly
+# that md5 (the patched file is the one mounted). No record, or another md5: the car's own screen, untouched by ccNC.
+md5_of() { set -- $(md5 "$1" 2>/dev/null); echo "$1"; }
+keep_md5() {
+    [ "$mode" = consent ] || return 0
+    rm -f "$LPD/consent.md5"
+    [ -n "$1" ] || return 0
+    s=$(md5_of "$1")
+    [ ${#s} = 32 ] && echo "$s" > "$LPD/consent.md5" 2>/dev/null && chmod 644 "$LPD/consent.md5" 2>/dev/null
+    return 0
+}
+case "$mode" in volume|sideosd|climate|consent) ;; *) echo "lp-ccnc: unknown mode '$mode'"; exit 1 ;; esac
 [ -s files/ccnc-lp.jar ] || { echo "lp-ccnc: missing files/ccnc-lp.jar"; exit 1; }
 [ -r "$in" ] || { echo "lp-ccnc: cannot read $in"; exit 1; }
 # dalvikvm needs a writable dalvik-cache for the tool's own jar (never /data/dalvik-cache)
@@ -31,8 +43,8 @@ ${DALVIKVM:-/system/bin/dalvikvm} -Xmx96m -cp files/ccnc-lp.jar ccnc.lp.DexPatch
 rc=$?
 rm -rf "$D"
 case $rc in
-0)  [ -s "$out" ] || { mark "$mode" error; echo "lp-ccnc: $mode wrote nothing"; exit 1; }; mark "$mode" applied; exit 0 ;;
-10) rm -f "$out"; mark "$mode" applied; exit 10 ;;
-1)  rm -f "$out"; mark "$mode" unsupported; echo "lp-ccnc: $mode doesn't fit this firmware; left stock"; exit 10 ;;
-*)  rm -f "$out"; mark "$mode" error; echo "lp-ccnc: $mode failed (tool error $rc); install stopped, nothing changed"; exit 1 ;;
+0)  [ -s "$out" ] || { mark "$mode" error; keep_md5; echo "lp-ccnc: $mode wrote nothing"; exit 1; }; mark "$mode" applied; keep_md5 "$out"; exit 0 ;;
+10) rm -f "$out"; mark "$mode" applied; keep_md5 "$in"; exit 10 ;;
+1)  rm -f "$out"; mark "$mode" unsupported; keep_md5; echo "lp-ccnc: $mode doesn't fit this firmware; left stock"; exit 10 ;;
+*)  rm -f "$out"; mark "$mode" error; keep_md5; echo "lp-ccnc: $mode failed (tool error $rc); install stopped, nothing changed"; exit 1 ;;
 esac

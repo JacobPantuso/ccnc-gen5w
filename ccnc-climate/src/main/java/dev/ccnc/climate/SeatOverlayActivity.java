@@ -13,6 +13,17 @@ import android.util.Log;
  */
 public final class SeatOverlayActivity extends Activity {
 
+    /** Tells CarPlay the car's popup is gone (stock setoempopupstatus.DISMISS), so it takes its screen back. */
+    static void dismissCarPlay(android.content.Context c) {
+        try {
+            c.sendBroadcast(new Intent("com.daudio.app.dipo.setoempopupstatus.DISMISS")
+                    .putExtra("isOtherPopupShow", false).putExtra("isSSOSDType", true));
+            Log.i(SeatOverlay.TAG, "closed: CarPlay popup status DISMISS sent");
+        } catch (Throwable t) {
+            Log.w(SeatOverlay.TAG, "dismiss broadcast", t);
+        }
+    }
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         boolean ok = false;

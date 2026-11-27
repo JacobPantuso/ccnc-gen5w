@@ -49,7 +49,7 @@ import dev.ccnc.common.Profiles;
 public final class MainActivity extends Activity implements Profiles.Listener {
 
     private static final String TAG = "ccncProfile";
-    private static final long SWITCH_TIMEOUT_MS = 12000;
+    private static final long SWITCH_TIMEOUT_MS = 25000;   // the car re-applies seats, climate and media first
 
     private final String[] names = {"Guest", "Driver 1", "Driver 2"};
     private final Bitmap[] photos = new Bitmap[3];
@@ -156,7 +156,7 @@ public final class MainActivity extends Activity implements Profiles.Listener {
     /** A tap on profile {@code id}: shows the switch at once, then asks the car. */
     private void switchTo(final int id) {
         stopCountdown();
-        if (id == active && pending < 0) { if (startup) finish(); return; }
+        if (id == active && pending < 0) { Chrome.beep(this); finish(); return; }   // already this profile: close
         if (pending >= 0) return;   // one switch at a time
         Chrome.beep(this);
         pending = id;
@@ -168,6 +168,13 @@ public final class MainActivity extends Activity implements Profiles.Listener {
                 if (!ok) fail("Couldn't switch profiles" + (message != null ? ": " + message : ""));
             }
         });
+        // The car doesn't always signal the change (the profile observer can fire before getUserType() moves, or not
+        // at all while the car re-applies the profile's settings): ask it directly until it reports the new profile.
+        ui.postDelayed(new Runnable() { @Override public void run() {
+            if (pending != id) return;
+            onProfilesChanged();
+            ui.postDelayed(this, 800);
+        } }, 800);
         ui.postDelayed(new Runnable() { @Override public void run() {
             if (pending == id) fail(locked[id] ? "Profile not changed (password not entered)" : "The car didn't switch profiles. Try again.");
         } }, locked[id] ? 60000 : SWITCH_TIMEOUT_MS);
@@ -209,7 +216,7 @@ public final class MainActivity extends Activity implements Profiles.Listener {
         if (countdownId < 0 || countdownMs <= 0) return;
         long left = countdownMs - (SystemClock.uptimeMillis() - countdownStart);
         if (left <= 0) { int id = countdownId; countdownId = -1; switchTo(id); return; }
-        status.setText("Continuing as " + names[countdownId] + " in " + ((left + 999) / 1000) + " s. Tap a profile to choose.");
+        status.setText("Continuing as " + names[countdownId] + " in " + ((left + 999) / 1000) + "s. Tap a profile to choose.");
         cards.invalidate();
         ui.postDelayed(countdownTick, 50);
     }

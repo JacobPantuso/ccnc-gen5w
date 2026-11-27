@@ -67,6 +67,7 @@ public final class DevMenu {
             {"volume", "Volume Strip Off", "/system/framework/automotive-service.odex", "f426a78f829b935005995b4f998863ca"},
             {"sideosd", "Side Popups Off", "/system/app/RightScreenHome.odex", "0b04470678194ab7e5bf626de3738001"},
             {"climate", "Climate Buttons", "/system/app/HKMC_Climate.odex", "364fe54acec3998d06ad53c44e7056d7"},
+            {"consent", "Start-Up Chooser", "/system/priv-app/SystemUI.odex", ""},
             {"welcome", "Startup Video", "/system/app/WelcomeGoodbye.apk", ""},
     };
     private static final String LP_DIR = DIR + "/livepatch";

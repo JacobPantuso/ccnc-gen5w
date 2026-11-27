@@ -15,6 +15,9 @@
         android:hardwareAccelerated="true"
         android:allowBackup="false">
 
+        <!-- The unit's Bluetooth library (IBluetoothAvrcpController): Bluetooth play / pause. Absent off the car. -->
+        <uses-library android:name="com.broadcom.bt" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTask"

@@ -457,6 +457,25 @@ public final class Chrome {
             return true;
         }
 
+        /** Right edge of what a child actually draws (a LinearLayout row ends at its last visible child). */
+        private static float contentRight(android.view.View v) {
+            if (v instanceof android.view.ViewGroup && !(v instanceof android.widget.AdapterView)) {
+                android.view.ViewGroup g = (android.view.ViewGroup) v;
+                float r = 0;
+                for (int i = 0; i < g.getChildCount(); i++) {
+                    android.view.View k = g.getChildAt(i);
+                    if (k.getVisibility() == VISIBLE) r = Math.max(r, k.getLeft() + contentRight(k));
+                }
+                return r;
+            }
+            if (v instanceof android.widget.TextView) {
+                android.widget.TextView t = (android.widget.TextView) v;
+                float tw = t.getPaint().measureText(String.valueOf(t.getText())) + t.getPaddingLeft() + t.getPaddingRight();
+                return Math.min(v.getWidth(), tw);
+            }
+            return v.getWidth();
+        }
+
         @Override protected void dispatchDraw(Canvas c) {
             super.dispatchDraw(c);
             int col = Palette.TEXT;
@@ -464,8 +483,15 @@ public final class Chrome {
             float w = getWidth(), base = getHeight() / 2f + 8 * dp;
             Date now = new Date();
             Locale loc = Locale.getDefault();
-            if (showDate) c.drawText(new SimpleDateFormat("EEE, MMM", loc).format(now) + ". " + new SimpleDateFormat("d", loc).format(now),
-                    w / 2f, base, date);
+            String ds = new SimpleDateFormat("EEE, MMM", loc).format(now) + ". " + new SimpleDateFormat("d", loc).format(now);
+            // The date steps aside whenever the left side (title, breadcrumb, tags) reaches into its space, so a long
+            // sub-menu title never runs into it.
+            float half = date.measureText(ds) / 2f + 24 * dp, leftEnd = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                android.view.View v = getChildAt(i);
+                if (v.getVisibility() == VISIBLE && v.getLeft() < w / 2f) leftEnd = Math.max(leftEnd, v.getLeft() + contentRight(v));
+            }
+            if (showDate && leftEnd < w / 2f - half) c.drawText(ds, w / 2f, base, date);
             boolean h24 = DateFormat.is24HourFormat(getContext());
             String t = new SimpleDateFormat(h24 ? "H:mm" : "h:mm", loc).format(now);
             String ap = h24 ? "" : new SimpleDateFormat("a", Locale.US).format(now).toUpperCase(Locale.US);

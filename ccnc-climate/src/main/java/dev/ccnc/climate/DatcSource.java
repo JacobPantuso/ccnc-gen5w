@@ -28,6 +28,9 @@ final class DatcSource implements Climate.Source {
     static final int T_GET_CLIMATE_INFO = 0x26;
     static final int T_IS_UNIT_CELSIUS = 0x6;
     static final int T_SUPPORT_FRONT_CONTROL = 0x40;
+    static final int T_IS_FRONT_MTC = 0x24;
+    /** getClimateInfo flags (DATCFlag$DATCConstants; not the control ids below). */
+    static final int F_CLIMATE_MODE_TYPE = 0x18, F_CLIMATE_CAN_SUPPORT = 0xe0;
     static final int T_SET_FRONT_CONTROL = 0x41;
 
     // DATCFlag$DATCControl / DATCConstants ids (KVT49L smali), used for getClimateInfo(id) and
@@ -123,7 +126,75 @@ final class DatcSource implements Climate.Source {
         state.rearRightHeat = Usm.heatLevel(usm.rr); state.rearRightVent = Usm.ventLevel(usm.rr);
         state.wheelAvail = usm.wheelAvailable(); state.wheelHeat = usm.wheelOn();
         state.drvOpt = usm.drvOpt; state.astOpt = usm.astOpt; state.rlOpt = usm.rlOpt; state.rrOpt = usm.rrOpt;
+        state.swOpt = usm.swOpt; state.swInf = usm.swInf;
+        state.seatProp = prop("persist.sys.showSWRCFrontSeat");
+        if (equipPolls++ % 10 == 0) readEquipment(); // at once, then every 15 s: the DATC variant can arrive after boot
+        state.equipRead = true;
         emit();
+    }
+
+    private int equipPolls;
+    private Object named;        // the unit's com.hkmc.datc.IDATCService proxy, or null
+    private Class<?> namedClass;
+    private boolean namedTried;
+
+    /**
+     * What the stock climate app asks the DATC service to decide which controls exist (see {@link Equipment}):
+     * getClimateType(), isFrontMTCType(), getClimateInfo(CLIMATE_MODE_TYPE) and getClimateInfo(CLIMATE_CAN_SUPPORT).
+     * Asked by method name through the unit's own proxy class where it is there, so a firmware that numbers the
+     * transactions differently still answers the right question; the recovered codes are the fallback.
+     */
+    private void readEquipment() {
+        if (service == null) return;
+        if (!namedTried) {
+            namedTried = true;
+            try {
+                named = Class.forName("com.hkmc.datc.IDATCService$Stub").getMethod("asInterface", IBinder.class).invoke(null, service);
+                namedClass = Class.forName("com.hkmc.datc.IDATCService");
+            } catch (Throwable t) {
+                named = null;
+            }
+            Log.i(TAG, "equipment queries by " + (named != null ? "method name" : "transaction code"));
+        }
+        state.climateType = ask("getClimateType", T_GET_CLIMATE_TYPE, null);
+        state.frontMtc = ask("isFrontMTCType", T_IS_FRONT_MTC, null);
+        state.modeType = ask("getClimateInfo", T_GET_CLIMATE_INFO, F_CLIMATE_MODE_TYPE);
+        state.canSupport = ask("getClimateInfo", T_GET_CLIMATE_INFO, F_CLIMATE_CAN_SUPPORT);
+    }
+
+    /** One int or boolean query, with an optional int argument; -1 when it can't be asked. */
+    private int ask(String name, int code, Integer arg) {
+        if (named != null) {
+            try {
+                Object v = arg == null ? namedClass.getMethod(name).invoke(named)
+                        : namedClass.getMethod(name, int.class).invoke(named, arg);
+                if (v instanceof Integer) return (Integer) v;
+                if (v instanceof Boolean) return ((Boolean) v) ? 1 : 0;
+            } catch (Throwable ignored) { } // fall through to the code
+        }
+        if (arg != null) return txInt(code, arg);
+        Parcel d = Parcel.obtain(), r = Parcel.obtain();
+        try {
+            d.writeInterfaceToken(IFACE);
+            service.transact(code, d, r, 0);
+            r.readException();
+            return r.readInt();
+        } catch (Throwable t) {
+            return -1;
+        } finally {
+            d.recycle();
+            r.recycle();
+        }
+    }
+
+    /** A system property, null when it isn't set or can't be read. */
+    private static String prop(String key) {
+        try {
+            String v = (String) Class.forName("android.os.SystemProperties").getMethod("get", String.class).invoke(null, key);
+            return v == null || v.trim().length() == 0 ? null : v.trim();
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /** IDATCService.isUnitCelsius(int tempUnit): the stock app passes DatcStatus.getTempUnit() (field 4). */
@@ -194,7 +265,9 @@ final class DatcSource implements Climate.Source {
      */
     void sendChanges(Climate.State fromState, Climate.State toState) {
         final Climate.State from = fromState.copy(), to = toState.copy();
-        work(new Runnable() { @Override public void run() { send(from, to); } });
+        // Ahead of any queued reads, so a tap reaches the car straight away.
+        android.os.Handler w = worker;
+        if (w != null) w.postAtFrontOfQueue(new Runnable() { @Override public void run() { send(from, to); } });
     }
 
     private void send(Climate.State from, Climate.State to) {

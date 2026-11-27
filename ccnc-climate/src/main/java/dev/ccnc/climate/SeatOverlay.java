@@ -103,10 +103,19 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
             Log.w(TAG, "remove", t);
         }
         source.stop();
+        // The stock climate service told CarPlay "car popup opening" (setoempopupstatus.ACTIVE) when the seat button
+        // was pressed, so CarPlay lent the screen to the car and went Home. On DISMISS CarPlay only gives the screen
+        // back if the popup is still in front, if the app in front is the STOCK launcher (it checks the class name
+        // com.android.launcher3.view.Launcher), or if the DISMISS says isSSOSDType. With ccNC Home in front the first
+        // two never match and CarPlay keeps the screen for the car; isSSOSDType makes it give the screen back.
+        SeatOverlayActivity.dismissCarPlay(app);
     }
+
+    private final Climate.Hold hold = new Climate.Hold();
 
     @Override public void onClimate(Climate.State s) {
         if (source.isVehicle()) vehicleState = s.copy();
+        if (source.isVehicle() && !hold.accept(s)) return;   // a tap the car hasn't applied yet stays on screen
         state = s;
         view.setState(state, source.isVehicle());
     }
@@ -116,7 +125,8 @@ final class SeatOverlay implements Climate.Source.Listener, ClimateView.Callback
         bumpIdle();
         if (source.isVehicle()) {
             if (control && vehicleState != null) {
-                datc.sendChanges(vehicleState, state); // the next reading from the car replaces the optimistic state
+                hold.tapped(state);
+                datc.sendChanges(vehicleState, state); // shown at once; the car's reading takes over once it matches
             } else {
                 if (vehicleState != null) state = vehicleState.copy();
                 Toast.makeText(app, control ? "This car doesn't allow climate control from the head unit"

@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.BLUETOOTH"/>
     <!-- profile photos from a USB stick -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- the start-up chooser is a window on top of the car's own start-up profile screen (StartupChooser) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application android:name="dev.ccnc.common.CcncApp"
         android:label="Profile"
         android:icon="@drawable/ic_launcher"
@@ -30,6 +32,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- The start-up chooser, started by ccNC Home when the unit starts. It checks by itself that the car's
+             start-up screen is waiting and that ccNC's SystemUI step is the one running; otherwise it stops at once. -->
+        <service android:name=".StartupChooser" android:exported="true" />
         <!-- Photos and ccNC profile settings for the other ccNC apps (read-only; see ProfileProvider). -->
         <provider
             android:name=".ProfileProvider"

@@ -182,6 +182,7 @@ public final class VolumeOsdService extends Service {
             if (!wasActive) { view.setTranslationY(H); view.setAlpha(0f); }
             view.animate().translationY(0).alpha(1f).setDuration(260).setInterpolator(new android.view.animation.DecelerateInterpolator()).setListener(null).start();
         }
+        ClimateNotice.volumeBar(true);   // a climate notice that is up moves above the bar
         h.removeCallbacks(closer);
         h.postDelayed(closer, TIMEOUT_MS);
     }
@@ -192,7 +193,7 @@ public final class VolumeOsdService extends Service {
         view.animate().cancel();
         view.animate().translationY(H).alpha(0f).setDuration(240).setInterpolator(new android.view.animation.AccelerateInterpolator())
             .setListener(new android.animation.AnimatorListenerAdapter() {
-                @Override public void onAnimationEnd(android.animation.Animator a) { view.active = false; view.invalidate(); view.setTranslationY(0); view.setAlpha(1f); }
+                @Override public void onAnimationEnd(android.animation.Animator a) { view.active = false; view.invalidate(); view.setTranslationY(0); view.setAlpha(1f); ClimateNotice.volumeBar(false); }
             }).start();
     }
 
@@ -378,7 +379,7 @@ public final class VolumeOsdService extends Service {
     }
 
     // ---- drawing ----
-    private static final class OsdView extends View {
+    static final class OsdView extends View {   // raw() and nine() are shared with ClimateNotice
         int level;
         volatile boolean active, muted;
         String label = "Media";

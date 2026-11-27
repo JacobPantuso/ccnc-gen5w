@@ -21,6 +21,13 @@
  *               invoke-direct {vA, vC}, Intent.<init>(String); nop...
  *            (same registers hold the same values afterwards as in stock; the intent's action is the
  *             stock class name, which ccNC Climate claims)
+ *   consent  SystemUI's start-up profile screen (Lcom/android/systemui/consentscreen/, found by its log strings),
+ *            so ccNC Profile's start-up chooser can sit on top of it and ask it to continue. Three edits, all or
+ *            none (see consent() below and private/systemui/DESIGN.txt):
+ *              1. its window type 2033 -> 2003 (TYPE_SYSTEM_ALERT): one layer lower, still under the rear camera
+ *              2. handleMessage: message 1 keeps calling confirm(); unused message 4 becomes
+ *                 "if (<the stock timer's gate>()) confirm()" in the room of message 1's log line
+ *              3. the HIDE_CONSENT_SCREEN broadcast sends message 4 instead of calling confirm() directly
  *
  * Classes and methods are found by stable names, string constants and code shape, never by the
  * obfuscated names (ClimateManager.aa/mD, RightScreenHome k/r), so one tool fits any firmware where
@@ -61,7 +68,7 @@ public final class DexPatch {
                 System.exit(d.run(a[1], false));
             }
             if (a.length != 3) {
-                System.out.println("usage: DexPatch <volume|sideosd|climate> <in> <out> | check <mode> <in>");
+                System.out.println("usage: DexPatch <volume|sideosd|climate|consent> <in> <out> | check <mode> <in>");
                 System.exit(2);
             }
             DexPatch d = new DexPatch(read(new File(a[1])));
@@ -70,8 +77,9 @@ public final class DexPatch {
                 d.fixSums();
                 FileOutputStream o = new FileOutputStream(a[2]);
                 try { o.write(d.b); } finally { o.close(); }
-                DexPatch v = new DexPatch(read(new File(a[2])));     // re-read the output: must now be "done"
-                if (v.run(a[0], false) != DONE) { new File(a[2]).delete(); throw new IllegalStateException("patch did not take"); }
+                int back;                                            // re-read the output: must now be "done"
+                try { back = new DexPatch(read(new File(a[2]))).run(a[0], false); } catch (RuntimeException e) { back = -1; }
+                if (back != DONE) { new File(a[2]).delete(); throw new IllegalStateException("patch did not take"); }
                 System.out.println(a[0] + ": patched");
             }
             System.exit(rc);
@@ -88,6 +96,7 @@ public final class DexPatch {
         if (mode.equals("volume")) return volume(write);
         if (mode.equals("sideosd")) return sideosd(write);
         if (mode.equals("climate")) return climate(write);
+        if (mode.equals("consent")) return consent(write);
         throw new Fail("unknown mode " + mode);
     }
 
@@ -164,14 +173,61 @@ public final class DexPatch {
             }
         }
         if (!plain) throw new Fail("sideosd: no canShowSSOsd()Z in this file");
-        int done = 0;
+        int view = avOffView(write);   // 1 already, 0 patched/patchable, -1 not on this build (left as it is)
+        int done = view == 0 ? -1 : 0;
         for (int[] m : ms) {
             int insns = m[2] + 16;
             if (u2(insns) == 0x0012 && u2(insns + 2) == 0x000f) { done++; continue; }
             if (write) { p2(insns, 0x0012); p2(insns + 2, 0x000f); }
             say("sideosd: " + typeName(methClass(m[0])) + "->" + methName(m[0]) + protoStr(m[0]) + (write ? " -> false" : " patchable"));
         }
+        if (view < 0) say("sideosd: no right-screen AV off view call found on this build; left as it is");
         return done == ms.size() ? DONE : PATCHABLE;
+    }
+
+    /**
+     * The right screen's own "Media off" panel (SplitScreenHome.avOff: log " avOff() AvOff View Osd Show", then
+     * nN.f(true) and nN.v() on the SplitScreenViewAvOff view). Found by shape: between that string and the next goto,
+     * exactly two calls on that view (invoke-virtual r.f(Z)/r.v(), or their invoke-virtual-quick form); both become three nops, so the panel keeps showing what it showed. Nothing
+     * else in avOff changes (the AV off state itself, the radio/media views, the log). Returns 1 if already nops,
+     * 0 if patched (or patchable), -1 if the shape isn't there.
+     */
+    int avOffView(boolean write) {
+        int cls = classDef("Lcom/mobis/splitscreen/right/SplitScreenHome;");
+        int str = stringIdx(" avOff() AvOff View Osd Show");
+        if (cls < 0 || str < 0) return -1;
+        for (int[] m : methods(cls)) {
+            if (m[2] == 0) continue;
+            int insns = m[2] + 16, n = u4(m[2] + 12);
+            for (int pc = 0; pc < n; pc += width(insns, pc, n)) {
+                int[] cs = constString(insns, pc, n);
+                if (cs == null || cs[1] != str) continue;
+                List<Integer> calls = new ArrayList<Integer>();
+                int nopRuns = 0, run = 0;
+                for (int q = pc + cs[2], k = 0; q < n && k < 16; k++) {
+                    int w = u2(insns + q * 2), op = w & 0xff;
+                    if (w == 0) { run++; q++; continue; }
+                    if (run > 0) { if (run == 3) nopRuns++; run = 0; }
+                    if (op == 0x28 || op == 0x29 || op == 0x2a || op == 0x0e) break;   // goto / return: end of the branch
+                    if (op == 0xf8) calls.add(q);                       // optimised: vtable call
+                    else if (op == 0x6e) {                                 // plain: must be SplitScreenViewAvOff.f(Z) / v()
+                        int mi = u2(insns + q * 2 + 2);
+                        String nm = methName(mi), pr = protoStr(mi);
+                        if (typeName(methClass(mi)).equals("Lcom/mobis/splitscreen/right/r;")
+                                && ((nm.equals("f") && pr.equals("(Z)V")) || (nm.equals("v") && pr.equals("()V")))) calls.add(q);
+                    }
+                    q += width(insns, q, n);
+                }
+                if (calls.isEmpty() && nopRuns == 2) return 1;
+                if (calls.size() != 2 || nopRuns != 0) return -1;
+                for (int at : calls) {
+                    if (write) { p2(insns + at * 2, 0); p2(insns + at * 2 + 2, 0); p2(insns + at * 2 + 4, 0); }
+                }
+                say("sideosd: SplitScreenHome." + methName(m[0]) + " AV off view (f(true), v()) -> " + (write ? "skipped" : "patchable"));
+                return 0;
+            }
+        }
+        return -1;
     }
 
     static final String CLIMATE_PKG = "com.hkmc.telematics.service.apps.climate";
@@ -273,6 +329,242 @@ public final class DexPatch {
         for (int i = 0; i < a.length; i++) if (a[i] == v && v >= 0) return i;
         return -1;
     }
+
+    // ---------------------------------------------------------------- consent (SystemUI start-up profile screen)
+
+    static final String CS_PKG = "Lcom/android/systemui/consentscreen/";
+    static final int TYPE_CONSENT = 2033, TYPE_SYSTEM_ALERT = 2003, MSG_GATED = 4;
+
+    /**
+     * SystemUI's ConsentScreen (the agreement, the three profiles and Done at start-up). After this:
+     *   - its window is TYPE_SYSTEM_ALERT (policy layer 17) instead of the car's type 2033 (layer 18), so an app's
+     *     system-alert window added later (ccNC Profile's start-up chooser) is drawn above it. The rear camera's
+     *     windows (type 2035, layer 20) stay above both. Without the chooser the stock screen shows and works.
+     *   - HIDE_CONSENT_SCREEN no longer calls confirm() directly: it sends the screen's own handler message 4, and
+     *     message 4 confirms only if the method the stock 10 s timer asks ("mScreenEnabled : ..", here: the gate)
+     *     says yes at that moment: screen enabled, no early camera, no reverse, power on or a call, ACC state 0,
+     *     no language dialog, no update view, no valet, profile known. Otherwise nothing happens.
+     *   - message 1 (the stock timer, and the firmware-update path) calls confirm() as before; only its debug log
+     *     line is gone, because the gate sits in those 7 code units.
+     * Everything is found by strings and shape. All three edits must be in the stock shape (-> patch) or all in
+     * the patched shape (-> done); anything else leaves the file alone.
+     */
+    int consent(boolean write) {
+        try {
+            return consent0(write);
+        } catch (Fail f) {
+            throw f;
+        } catch (RuntimeException e) {       // an index ran off a method: not the layout this was written for
+            throw new Fail("consent: unexpected code layout (" + e + "); left stock");
+        }
+    }
+
+    private int consent0(boolean write) {
+        int sGate = stringIdx("mScreenEnabled : "), sClose = stringIdx("handleMessage : MSG_CLOSE_CONSENT");
+        int sHide = stringIdx("com.mobis.intent.action.HIDE_CONSENT_SCREEN"), sTitle = stringIdx("ConsentScreen");
+        int sConfirm = stringIdx("confirm() : ConsentScreen is going to close");
+        if (sGate < 0 || sClose < 0 || sHide < 0 || sTitle < 0 || sConfirm < 0) throw new Fail("consent: not SystemUI's consent screen (strings missing)");
+
+        // the screen's class and its gate: the one ()Z method that logs "mScreenEnabled : "
+        int cls = -1, mGate = -1;
+        for (int c = 0; c < cdefN; c++) {
+            if (!typeName(u4(cdefOff + c * 32)).startsWith(CS_PKG)) continue;
+            for (int[] m : methods(c)) {
+                if (m[2] == 0 || !protoStr(m[0]).equals("()Z") || !refsString(m, sGate)) continue;
+                if (mGate >= 0) throw new Fail("consent: more than one gate method");
+                cls = c; mGate = m[0];
+            }
+        }
+        if (mGate < 0) throw new Fail("consent: no gate method (\"mScreenEnabled : \")");
+        String E = typeName(u4(cdefOff + cls * 32));
+
+        // confirm(): the ()V method of that class that logs "confirm() : ConsentScreen is going to close"
+        int mConfirm = -1;
+        int[] handle = null, params = null;
+        int mSendAcc = -1, mConfirmAcc = -1;
+        for (int[] m : methods(cls)) {
+            if (m[2] == 0) continue;
+            String n = methName(m[0]), pr = protoStr(m[0]);
+            if (pr.equals("()V") && refsString(m, sConfirm)) { if (mConfirm >= 0) throw new Fail("consent: two confirm methods"); mConfirm = m[0]; }
+            if (n.equals("handleMessage") && pr.equals("(Landroid/os/Message;)Z")) handle = m;
+            if (pr.equals("()Landroid/view/WindowManager$LayoutParams;") && refsString(m, sTitle)) { if (params != null) throw new Fail("consent: two window-params methods"); params = m; }
+        }
+        if (mConfirm < 0 || handle == null || params == null) throw new Fail("consent: confirm / handleMessage / window params not found");
+        // the two static bridges other classes use: X(E)V = { confirm() } and Y(E,I)V = { sendEmptyMessage(I) }
+        for (int[] m : methods(cls)) {
+            if (m[2] == 0 || (m[1] & 0x8) == 0 || u4(m[2] + 12) != 4) continue;
+            int in = m[2] + 16;
+            String pr = protoStr(m[0]);
+            if (pr.equals("(" + E + ")V") && u2(in) == 0x1070 && u2(in + 2) == mConfirm && u2(in + 4) == 0 && u2(in + 6) == 0x000e) {
+                if (mConfirmAcc >= 0) throw new Fail("consent: two confirm bridges"); mConfirmAcc = m[0];
+            }
+            if (pr.equals("(" + E + "I)V") && u2(in) == 0x2070 && u2(in + 4) == 0x0010 && u2(in + 6) == 0x000e) {
+                int t = u2(in + 2);
+                if (typeName(methClass(t)).equals(E) && methName(t).equals("sendEmptyMessage") && protoStr(t).equals("(I)V")) {
+                    if (mSendAcc >= 0) throw new Fail("consent: two sendEmptyMessage bridges"); mSendAcc = m[0];
+                }
+            }
+        }
+        if (mConfirmAcc < 0 || mSendAcc < 0) throw new Fail("consent: confirm / sendEmptyMessage bridge not found");
+
+        int[] type = consentType(params);                       // {offset of the value unit, state}
+        int[] gate = consentGate(handle, mGate, mConfirm, sClose);   // {T (old case 1), S (switch), payload, R, this, ret, state}
+        int[] hide = consentHide(E, sHide, mConfirmAcc, mSendAcc);   // {offset of the first changed unit, object reg, spare reg, state}
+        int st = type[1] + gate[6] + hide[3];                   // each 0 stock, 1 patched
+        if (st == 3) return DONE;
+        if (st != 0) throw new Fail("consent: partly patched file (type " + type[1] + ", gate " + gate[6] + ", hide " + hide[3] + "); left as it is");
+        if (write) {
+            p2(type[0], TYPE_SYSTEM_ALERT);
+            int at = handle[2] + 16, T = gate[0], S = gate[1], pl = gate[2], R = gate[3];
+            p2(at + 2 * T, 0x1070); p2(at + 2 * (T + 1), mGate); p2(at + 2 * (T + 2), gate[4]);   // invoke-direct {this}, gate()Z
+            p2(at + 2 * (T + 3), 0x0a | R << 8);                                                  // move-result vR
+            p2(at + 2 * (T + 4), 0x38 | R << 8); p2(at + 2 * (T + 5), (gate[5] - (T + 4)) & 0xffff);  // if-eqz vR, <return vR>
+            p2(at + 2 * (T + 6), 0x12 | R << 8);                                                  // const/4 vR, 0
+            p4(at + 2 * pl + 8, T + 7 - S);                                                       // message 1 -> confirm()
+            p4(at + 2 * pl + 8 + 4 * (MSG_GATED - 1), T - S);                                     // message 4 -> gate, then confirm()
+            int h = hide[0];
+            p2(h, 0x12 | hide[2] << 8 | MSG_GATED << 12);                                         // const/4 vK, 4
+            p2(h + 2, 0x2071); p2(h + 4, mSendAcc); p2(h + 6, hide[1] | hide[2] << 4);            // invoke-static {vO, vK}, Y(E,I)V
+            p2(h + 8, 0x000e);                                                                    // return-void
+        }
+        say("consent: " + E + " window type " + TYPE_CONSENT + " -> " + TYPE_SYSTEM_ALERT + (write ? "" : " patchable"));
+        say("consent: handleMessage: message " + MSG_GATED + " = if (" + methName(mGate) + "()) " + methName(mConfirm) + "(); message 1 unchanged" + (write ? "" : " (patchable)"));
+        say("consent: HIDE_CONSENT_SCREEN -> message " + MSG_GATED + " instead of " + methName(mConfirm) + "()" + (write ? "" : " (patchable)"));
+        return PATCHABLE;
+    }
+
+    boolean refsString(int[] m, int str) {
+        int insns = m[2] + 16, n = u4(m[2] + 12);
+        for (int pc = 0; pc < n; pc += width(insns, pc, n)) {
+            int[] cs = constString(insns, pc, n);
+            if (cs != null && cs[1] == str) return true;
+        }
+        return false;
+    }
+
+    /* The main window's type: "const/16 vX, #type" feeding invoke-direct/range {v0..v7} LayoutParams.<init>(IIIIIII)V as its 5th int. */
+    int[] consentType(int[] m) {
+        int insns = m[2] + 16, n = u4(m[2] + 12), found = -1, state = -1;
+        for (int pc = 0; pc < n; pc += width(insns, pc, n)) {
+            int w = u2(insns + pc * 2);
+            if ((w & 0xff) != 0x76 || (w >> 8) != 8) continue;
+            int t = u2(insns + pc * 2 + 2), first = u2(insns + pc * 2 + 4);
+            if (!typeName(methClass(t)).equals("Landroid/view/WindowManager$LayoutParams;") || !methName(t).equals("<init>") || !protoStr(t).equals("(IIIIIII)V")) continue;
+            int reg = first + 5, at = -1;                         // this, w, h, x, y, type
+            for (int q = 0; q < pc; q += width(insns, q, n)) {     // the last "const/16 vReg" before the call
+                int c = u2(insns + q * 2);
+                if ((c & 0xff) == 0x13 && (c >> 8) == reg) at = q;
+            }
+            if (at < 0 || found >= 0) throw new Fail("consent: window type constant not found (or two windows)");
+            int v = u2(insns + at * 2 + 2);
+            if (v != TYPE_CONSENT && v != TYPE_SYSTEM_ALERT) throw new Fail("consent: window type is " + v + ", not " + TYPE_CONSENT);
+            found = insns + at * 2 + 2; state = v == TYPE_SYSTEM_ALERT ? 1 : 0;
+        }
+        if (found < 0) throw new Fail("consent: no LayoutParams(w, h, x, y, type, flags, format) call");
+        return new int[] {found, state};
+    }
+
+    /*
+     * handleMessage's packed-switch (first key 1). Stock: key 4 has no case (falls to the instruction after the
+     * switch) and key 1 is
+     *     T:    const-string vR, tag; const-string vB, "handleMessage : MSG_CLOSE_CONSENT"; invoke-static {vR, vB}, log   (7 units)
+     *     T+7:  invoke-direct {this}, confirm()V
+     *     T+10: move vR, vTrue; goto <return vR>
+     * Patched: key 4 -> T, key 1 -> T+7, and T is
+     *     invoke-direct {this}, gate()Z; move-result vR; if-eqz vR, <return vR>; const/4 vR, 0                           (7 units)
+     * vR is 0 again at T+7, where stock held the tag string in it; it is overwritten by the move at T+10 either way.
+     */
+    int[] consentGate(int[] m, int mGate, int mConfirm, int sClose) {
+        int insns = m[2] + 16, n = u4(m[2] + 12), self = u2(m[2]) - u2(m[2] + 2), S = -1;
+        if (u2(m[2] + 6) != 0) throw new Fail("consent: handleMessage has try blocks");
+        for (int pc = 0; pc < n; pc += width(insns, pc, n)) if ((u2(insns + pc * 2) & 0xff) == 0x2b) { S = pc; break; }
+        if (S < 0) throw new Fail("consent: handleMessage has no packed-switch");
+        int pl = S + (u2(insns + S * 2 + 2) | u2(insns + S * 2 + 4) << 16);
+        if (pl < 0 || pl + 4 > n || u2(insns + pl * 2) != 0x0100 || u2(insns + pl * 2 + 2) < MSG_GATED || u4(insns + pl * 2 + 4) != 1)
+            throw new Fail("consent: handleMessage's switch doesn't start at message 1");
+        int t1 = S + u4(insns + pl * 2 + 8), t4 = S + u4(insns + pl * 2 + 8 + 4 * (MSG_GATED - 1));
+        boolean patched = t1 == t4 + 7;
+        int T = patched ? t4 : t1;
+        if (T < 0 || T + 12 > n) throw new Fail("consent: message 1's case is out of range");
+        if (!patched && t4 != S + 3) throw new Fail("consent: message " + MSG_GATED + " already has a case");
+        // T+7: invoke-direct {this}, confirm; move vR, vX; goto <return vR>
+        if (u2(insns + (T + 7) * 2) != 0x1070 || u2(insns + (T + 8) * 2) != mConfirm || u2(insns + (T + 9) * 2) != self || self > 15)
+            throw new Fail("consent: message 1 doesn't call confirm() where expected");
+        int mv = u2(insns + (T + 10) * 2), gt = u2(insns + (T + 11) * 2);
+        if ((mv & 0xff) != 0x01 || (gt & 0xff) != 0x28) throw new Fail("consent: message 1 doesn't end with move + goto");
+        int R = (mv >> 8) & 0xf, ret = T + 11 + (byte) (gt >> 8);
+        if (ret < 0 || ret >= n || u2(insns + ret * 2) != (0x0f | R << 8)) throw new Fail("consent: message 1 doesn't end at 'return vR'");
+        if (R == self || R >= self) throw new Fail("consent: result register is a parameter");
+        if (patched) {
+            if (u2(insns + T * 2) != 0x1070 || u2(insns + (T + 1) * 2) != mGate || u2(insns + (T + 2) * 2) != self
+                    || u2(insns + (T + 3) * 2) != (0x0a | R << 8) || u2(insns + (T + 4) * 2) != (0x38 | R << 8)
+                    || (short) u2(insns + (T + 5) * 2) != ret - (T + 4) || u2(insns + (T + 6) * 2) != (0x12 | R << 8))
+                throw new Fail("consent: message " + MSG_GATED + " has a case that isn't ours");
+            return new int[] {T, S, pl, R, self, ret, 1};
+        }
+        int[] s1 = constString(insns, T, n), s2 = constString(insns, T + 2, n);
+        int lg = u2(insns + (T + 4) * 2);
+        if (s1 == null || s2 == null || s1[2] != 2 || s2[2] != 2 || s2[1] != sClose || s1[0] != R || s2[0] > 15
+                || lg != 0x2071 || u2(insns + (T + 6) * 2) != (s1[0] | s2[0] << 4))
+            throw new Fail("consent: message 1 doesn't start with its log line");
+        if (ret - (T + 4) < -32768 || ret - (T + 4) > 32767) throw new Fail("consent: return is too far");
+        // nothing else may jump into the 7 units that change (T+1 .. T+6): every case target must be outside them
+        for (int i = 0, cnt = u2(insns + pl * 2 + 2); i < cnt; i++) {
+            int t = S + u4(insns + pl * 2 + 8 + 4 * i);
+            if (t > T && t < T + 7) throw new Fail("consent: another case jumps into message 1's log line");
+        }
+        return new int[] {T, S, pl, R, self, ret, 0};
+    }
+
+    /*
+     * The receiver's HIDE_CONSENT_SCREEN branch. Stock (after the string compare and its if-eqz):
+     *     iget-object[-quick] vO, this, screen; invoke-static {vO}, X(E)V; goto/16 <return-void>          (2 + 3 + 2)
+     * Patched:
+     *     iget-object[-quick] vO, this, screen; const/4 vK, 4; invoke-static {vO, vK}, Y(E,I)V; return-void  (2 + 1 + 3 + 1)
+     */
+    int[] consentHide(String E, int sHide, int mConfirmAcc, int mSendAcc) {
+        int[] out = null;
+        for (int c = 0; c < cdefN; c++) {
+            if (!typeName(u4(cdefOff + c * 32)).startsWith(CS_PKG)) continue;
+            for (int[] m : methods(c)) {
+                if (m[2] == 0) continue;
+                int insns = m[2] + 16, n = u4(m[2] + 12);
+                for (int pc = 0; pc < n; pc += width(insns, pc, n)) {
+                    int[] cs = constString(insns, pc, n);
+                    if (cs == null || cs[1] != sHide) continue;
+                    int q = pc + cs[2];
+                    int cmp = u2(insns + q * 2) & 0xff;
+                    if (cmp != 0xee && cmp != 0x6e && cmp != 0xf8) continue;       // equals(): inline, virtual or quick (the intent filter's addAction isn't followed by a move-result)
+                    q += 3;
+                    if ((u2(insns + q * 2) & 0xff) != 0x0a) continue;              // move-result
+                    int res = u2(insns + q * 2) >> 8;
+                    q += 1;
+                    if (u2(insns + q * 2) != (0x38 | res << 8)) continue;          // if-eqz
+                    q += 2;
+                    if (out != null) throw new Fail("consent: HIDE_CONSENT_SCREEN is handled in two places");
+                    if (!methName(m[0]).equals("onReceive") || !protoStr(m[0]).equals("(Landroid/content/Context;Landroid/content/Intent;)V") || u2(m[2] + 6) != 0)
+                        throw new Fail("consent: HIDE_CONSENT_SCREEN isn't handled in a plain onReceive");
+                    int ig = u2(insns + q * 2), op = ig & 0xff, self = u2(m[2]) - u2(m[2] + 2), locals = self;
+                    if ((op != 0xf4 && op != 0x54) || ((ig >> 12) & 0xf) != self || q + 7 > n) throw new Fail("consent: HIDE branch doesn't load the screen first");
+                    int O = (ig >> 8) & 0xf, K = O == 1 ? 2 : 1;
+                    if (locals <= K || O >= locals || u2(m[2] + 4) < 2) throw new Fail("consent: no spare register / outgoing slots in onReceive");
+                    int a = insns + (q + 2) * 2;
+                    if (u2(a) == 0x1071 && u2(a + 2) == mConfirmAcc && u2(a + 4) == O && u2(a + 6) == 0x0029) {
+                        int tgt = q + 5 + (short) u2(a + 8);
+                        if (tgt < 0 || tgt >= n || u2(insns + tgt * 2) != 0x000e) throw new Fail("consent: HIDE branch doesn't end at return-void");
+                        out = new int[] {a, O, K, 0};
+                    } else if ((u2(a) & 0xf0ff) == (0x12 | MSG_GATED << 12) && u2(a + 2) == 0x2071 && u2(a + 4) == mSendAcc
+                            && u2(a + 6) == (O | ((u2(a) >> 8) & 0xf) << 4) && u2(a + 8) == 0x000e) {
+                        out = new int[] {a, O, (u2(a) >> 8) & 0xf, 1};
+                    } else throw new Fail("consent: HIDE branch has another shape");
+                }
+            }
+        }
+        if (out == null) throw new Fail("consent: no HIDE_CONSENT_SCREEN branch");
+        return out;
+    }
+
+    void p4(int o, int v) { p2(o, v & 0xffff); p2(o + 2, v >>> 16); }
 
     /* Dalvik (4.4, odex) instruction width in code units, payload pseudo-instructions included */
     int width(int at, int pc, int n) {

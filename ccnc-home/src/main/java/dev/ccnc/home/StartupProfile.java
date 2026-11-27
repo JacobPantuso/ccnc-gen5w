@@ -7,6 +7,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import dev.ccnc.common.Profiles;
+import dev.ccnc.common.StartupScreen;
 
 /**
  * ccNC Profile's "Default Profile" and "Auto-Advance" on the stock start-up profile screen (SystemUI's ConsentScreen:
@@ -18,6 +19,10 @@ import dev.ccnc.common.Profiles;
  * Auto-advance only acts here once the owner chose a value in Setup (the stock screen keeps its own 10 s timer
  * otherwise), and only for values under 10 s; Off (-1) leaves it alone too. Runs from Home's start and from BOOT_COMPLETED,
  * whichever comes first, and only within the first minutes after the unit starts.
+ *
+ * With ccNC's SystemUI step (LivePatch "consent", see dev.ccnc.common.StartupScreen) it hands over to ccNC Profile's
+ * start-up chooser instead, which is shown on top of the stock screen and does both through the stock screen's own
+ * checks. Without that step, or with a ccNC Profile that has no chooser, everything below is as before.
  */
 public final class StartupProfile extends BroadcastReceiver {
     static final String TAG = "ccncStartup";
@@ -32,7 +37,32 @@ public final class StartupProfile extends BroadcastReceiver {
     static final boolean EARLY_CONFIRM = false;
     private static boolean started;
 
-    @Override public void onReceive(Context c, Intent i) { run(c); }
+    static final String ACC = "com.hkmc.intent.action.ACTION_ACC_STATUS_CHANGED";
+
+    @Override public void onReceive(Context c, Intent i) {
+        if (i != null && ACC.equals(i.getAction())) again(c); else run(c);
+    }
+
+    private static long lastAgain;
+
+    /**
+     * A soft start (the car switched off and on while the head unit only slept): nothing restarts, but SystemUI makes
+     * its start-up screen again on the same ACC change (ConsentScreen sets sys.boot.confirm_screen=false). Wait a
+     * moment for that screen, then open ccNC's chooser over it, as at a full start. Only with ccNC's SystemUI step.
+     */
+    static synchronized void again(Context ctx) {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastAgain < 15000) return;                          // one ACC change can arrive more than once
+        lastAgain = now;
+        final Context c = ctx.getApplicationContext();
+        new Thread(new Runnable() { @Override public void run() {
+            if (!StartupScreen.patchActive()) return;
+            long wait = SystemClock.elapsedRealtime() + 10000;
+            while (!StartupScreen.pending() && SystemClock.elapsedRealtime() < wait) SystemClock.sleep(250);
+            if (!StartupScreen.pending()) return;                      // ACC change without a new start-up screen
+            if (StartupScreen.startChooser(c)) Log.i(TAG, "start-up chooser started after an ACC change (soft start)");
+        } }, "ccncStartupAgain").start();
+    }
 
     static synchronized void run(Context ctx) {
         if (started) return;
@@ -40,6 +70,15 @@ public final class StartupProfile extends BroadcastReceiver {
         if (SystemClock.elapsedRealtime() > 5 * 60 * 1000L) return;   // not a fresh start (Home restarted later)
         final Context c = ctx.getApplicationContext();
         new Thread(new Runnable() { @Override public void run() {
+            if (StartupScreen.patchActive()) {
+                // Home can be up before SystemUI has made its start-up screen: give it a moment to exist.
+                long wait = SystemClock.elapsedRealtime() + 30000;
+                while (!"true".equals(prop("sys.boot.show_screen")) && SystemClock.elapsedRealtime() < wait) SystemClock.sleep(300);
+                if (StartupScreen.pending() && StartupScreen.startChooser(c)) {
+                    Log.i(TAG, "start-up chooser started (ccNC Profile)");
+                    return;
+                }
+            }
             int def = Profiles.setting(c, "default_profile", -1);
             int auto = Profiles.setting(c, "auto_advance", 3);
             boolean early = EARLY_CONFIRM && Profiles.setting(c, "auto_advance_custom", 0) == 1 && auto >= 0 && auto < STOCK_AUTO;

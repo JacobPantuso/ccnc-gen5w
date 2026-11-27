@@ -50,7 +50,10 @@ installed() { pm path "$1" 2>/dev/null | grep -q "^package:"; }
 CCNC_DIR=/data/ccnc
 PENDING=$CCNC_DIR/uninstall-pending
 # step:target, for the developer menu's records
-STEPS="volume:/system/framework/automotive-service.odex sideosd:/system/app/RightScreenHome.odex climate:/system/app/HKMC_Climate.odex welcome:/system/app/WelcomeGoodbye.apk"
+STEPS="volume:/system/framework/automotive-service.odex sideosd:/system/app/RightScreenHome.odex climate:/system/app/HKMC_Climate.odex consent:/system/priv-app/SystemUI.odex welcome:/system/app/WelcomeGoodbye.apk"
+# The start-up screen step. HMG-API's maps don't list SystemUI.odex (hmgapi-src, CEEV.CAN 250818); should a map on
+# this unit list it, post.sh keeps a stock copy for it like for $HMG_FILES.
+CONSENT_FILE=/system/priv-app/SystemUI.odex
 
 # Home's notification listener (removes the Gen5W media popups and the boot "Media off" notice).
 listener_on() {
