@@ -265,7 +265,8 @@ public final class Page {
             @Override public void set(int v) { val.setText(String.valueOf(v)); }
         };
         bar.release = new Fn.SetInt() {
-            @Override public void set(int v) { try { set.set(v); } catch (Throwable ignored) { } val.setText(String.valueOf(safe(get))); }
+            // The value chosen: some settings reach it over a moment (tone and position step one level at a time).
+            @Override public void set(int v) { try { set.set(v); } catch (Throwable ignored) { } val.setText(String.valueOf(v)); }
         };
         r.addView(bar, lp(Skin.LIST_W - 2 * 119, 60, 119, 58 + 55));
         r.addView(spin(false, bar), lp(60, 60, 54, 58 + 55));

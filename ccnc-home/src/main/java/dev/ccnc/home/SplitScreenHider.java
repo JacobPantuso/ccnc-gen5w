@@ -37,22 +37,25 @@ final class SplitScreenHider {
     SplitScreenHider(Context ctx) { this.ctx = ctx.getApplicationContext(); }
 
     /**
-     * Off the main thread (the full list is ~1000 calls into the service): the whole list once per
-     * process (again 30 s later in case the service was still starting), and on later resumes only the
-     * cheap "button off" request.
+     * Off the main thread. The cheap part (panel off, tab hidden) at once, every time. The whole list (every
+     * activity of every app from the package manager, then ~1000 calls into the service, each logged by it)
+     * once per process and again 30 s later in case the service was still starting; at start-up it waits for
+     * the start-up screen and ccNC's chooser to go (StartupHold), as it was one of the biggest loads then.
+     * Main thread only.
      */
     void apply() {
         if (worker == null) {
-            thread = new android.os.HandlerThread("ccncSplit");
+            thread = new android.os.HandlerThread("ccncSplit", android.os.Process.THREAD_PRIORITY_BACKGROUND);
             thread.start();
             worker = new Handler(thread.getLooper());
         }
+        worker.post(new Runnable() { @Override public void run() { run1(false); } });
         if (!listed) {
             listed = true;
-            worker.post(new Runnable() { @Override public void run() { run1(true); } });
-            worker.postDelayed(new Runnable() { @Override public void run() { run1(true); } }, 30000);
-        } else {
-            worker.post(new Runnable() { @Override public void run() { run1(false); } });
+            dev.ccnc.common.StartupHold.run("splitList", new Runnable() { @Override public void run() {
+                worker.post(new Runnable() { @Override public void run() { run1(true); } });
+                worker.postDelayed(new Runnable() { @Override public void run() { run1(true); } }, 30000);
+            } });
         }
     }
 
@@ -85,14 +88,23 @@ final class SplitScreenHider {
 
 
     /** Calls the manager method with this name and argument count; false if it isn't there or fails. */
+    private final java.util.HashMap<String, Method> methods = new java.util.HashMap<String, Method>();
+
     private boolean call(String name, Object... args) {
         try {
-            for (Method m : mgr.getClass().getMethods()) {
-                if (!m.getName().equals(name) || m.getParameterTypes().length != args.length) continue;
-                m.invoke(mgr, args);
+            String key = name + "/" + args.length;
+            Method found = methods.get(key);
+            if (found == null) {
+                for (Method m : mgr.getClass().getMethods()) {
+                    if (m.getName().equals(name) && m.getParameterTypes().length == args.length) { found = m; break; }
+                }
+                if (found != null) methods.put(key, found);
+            }
+            if (found != null) {
+                found.invoke(mgr, args);
                 return true;
             }
-            Log.w(TAG, "no method " + name + "/" + args.length);
+            Log.w(TAG, "no method " + key);
         } catch (Throwable t) {
             Log.w(TAG, name + " failed", t);
         }

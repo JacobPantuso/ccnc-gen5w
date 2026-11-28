@@ -38,7 +38,7 @@
             android:stateNotNeeded="true"
             android:excludeFromRecents="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode">
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -49,48 +49,48 @@
             android:name=".VehicleSettingsActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
 
         <activity
             android:name=".BluetoothActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
 
         <activity
             android:name=".WifiActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
 
         <activity
             android:name=".SoundActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
 
         <activity
             android:name=".GeneralActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
 
         <activity
             android:name=".DisplayActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
 
         <activity
             android:name=".AppearanceActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
 
         <activity
             android:name=".DriverAssistActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
+            android:configChanges="mcc|mnc|orientation|screenSize|keyboardHidden|keyboard|navigation|locale|layoutDirection|uiMode" />
     </application>
 </manifest>

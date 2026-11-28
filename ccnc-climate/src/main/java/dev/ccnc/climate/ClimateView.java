@@ -330,8 +330,9 @@ final class ClimateView extends View {
         String icon = "clm_ic_toggle_0" + (heat ? "2" : "3") + (level > 0 ? "_s" : "");
         img(c, icon, x + 25f, y + 15f, 70f, 255);
         final int steps = driver ? eq.drvSteps : eq.astSteps;   // 3 bars of 24, or 2 of 40, across the same 88
-        if (steps == 2) for (int i = 0; i < 2; i++) indicator(c, x + 16f + i * 48f, y + 10f, 40f, i < lit(level, 2), true);
-        else for (int i = 0; i < 3; i++) indicator(c, x + 16f + i * 32f, y + 10f, 24f, i < level, true);
+        // ccNC's bars: orange for heating (toggle01), blue for ventilation (toggle02)
+        if (steps == 2) for (int i = 0; i < 2; i++) indicator(c, x + 16f + i * 48f, y + 10f, 40f, i < lit(level, 2), true, !heat);
+        else for (int i = 0; i < 3; i++) indicator(c, x + 16f + i * 32f, y + 10f, 24f, i < level, true, !heat);
         hit(b, true, new Runnable() { @Override public void run() {
             // Stock cycle (SeatHeatVentPopup): heat 8,7,6,2 / vent 5,4,3,2 on the SEAT_STATES values (8,6,2 / 5,3,2 with 2 levels).
             int cur = driver ? (s.driverSeatHeat > 0 ? Usm.stateOf(true, s.driverSeatHeat) : Usm.stateOf(false, s.driverSeatVent))
@@ -564,8 +565,10 @@ final class ClimateView extends View {
     private final java.util.HashMap<String, Bitmap> ind = new java.util.HashMap<String, Bitmap>();
 
     /** ccNC's toggle indicator art (9-patch, 1px guide border cropped), drawn w x 5. */
-    private void indicator(Canvas c, float l, float t, float w, boolean on, boolean seat) {
-        String n = (seat ? "clm_btn_toggle01_" : "clm_btn_toggle_") + (on ? "on" : "off");
+    private void indicator(Canvas c, float l, float t, float w, boolean on, boolean seat) { indicator(c, l, t, w, on, seat, false); }
+
+    private void indicator(Canvas c, float l, float t, float w, boolean on, boolean seat, boolean cool) {
+        String n = (seat ? (cool ? "clm_btn_toggle02_" : "clm_btn_toggle01_") : "clm_btn_toggle_") + (on ? "on" : "off");
         Bitmap b = ind.get(n);
         if (b == null) {
             try {

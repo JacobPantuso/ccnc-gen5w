@@ -6,7 +6,10 @@ import android.content.Intent;
 import android.os.SystemClock;
 import android.util.Log;
 
+import dev.ccnc.common.ProfileCache;
 import dev.ccnc.common.Profiles;
+import dev.ccnc.common.StartupChooser;
+import dev.ccnc.common.StartupHold;
 import dev.ccnc.common.StartupScreen;
 
 /**
@@ -20,9 +23,12 @@ import dev.ccnc.common.StartupScreen;
  * otherwise), and only for values under 10 s; Off (-1) leaves it alone too. Runs from Home's start and from BOOT_COMPLETED,
  * whichever comes first, and only within the first minutes after the unit starts.
  *
- * With ccNC's SystemUI step (LivePatch "consent", see dev.ccnc.common.StartupScreen) it hands over to ccNC Profile's
- * start-up chooser instead, which is shown on top of the stock screen and does both through the stock screen's own
- * checks. Without that step, or with a ccNC Profile that has no chooser, everything below is as before.
+ * With ccNC's SystemUI step (LivePatch "consent", see dev.ccnc.common.StartupScreen) it opens ccNC's start-up chooser
+ * instead (dev.ccnc.common.StartupChooser), shown on top of the stock screen; it does both through the stock screen's
+ * own checks. The chooser runs here in Home's process, which is already up, with Home's copy of ccNC Profile's photos
+ * and settings (ProfileCache), so no other app has to start first; ccNC Profile's service is only the fallback.
+ * While the start-up screen may still come, Home holds its background work (StartupHold) so the chooser gets the
+ * head unit to itself. Without the SystemUI step everything below is as before.
  */
 public final class StartupProfile extends BroadcastReceiver {
     static final String TAG = "ccncStartup";
@@ -39,11 +45,52 @@ public final class StartupProfile extends BroadcastReceiver {
 
     static final String ACC = "com.hkmc.intent.action.ACTION_ACC_STATUS_CHANGED";
 
+    /** Emulator preview, debuggable builds only: am broadcast -n dev.ccnc.home/.StartupProfile -a dev.ccnc.home.STARTUP_PREVIEW */
+    static final String PREVIEW = "dev.ccnc.home.STARTUP_PREVIEW";
+
     @Override public void onReceive(Context c, Intent i) {
-        if (i != null && ACC.equals(i.getAction())) again(c); else run(c);
+        String a = i == null ? null : i.getAction();
+        if (ACC.equals(a)) again(c);
+        else if (PREVIEW.equals(a)) preview(c);
+        else run(c);
+    }
+
+    private static void preview(final Context c) {
+        StartupHold.hold();
+        if (!StartupChooser.open(c, true, DATA, new Runnable() { @Override public void run() { StartupHold.release("preview closed"); } }))
+            StartupHold.release("preview not opened");
     }
 
     private static long lastAgain;
+    private static final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** Home's copy of ccNC Profile's photos and settings (ccNC Profile isn't woken at start-up). */
+    static final StartupChooser.Data DATA = new StartupChooser.Data() {
+        @Override public android.graphics.Bitmap photo(Context c, int id) { return ProfileCache.photo(c, id, false); }
+        @Override public int defaultProfile(Context c) { return ProfileCache.setting(c, "default_profile", -1, false); }
+        @Override public int autoAdvance(Context c) { return ProfileCache.setting(c, "auto_advance", 3, false); }
+    };
+
+    /** Opens the chooser in Home's process (from any thread); ccNC Profile's service if that can't be done. */
+    static void openChooser(final Context c, final String how) {
+        main.post(new Runnable() { @Override public void run() {
+            if (StartupChooser.running()) { Log.i(TAG, "start-up chooser already open (" + how + ")"); return; }
+            StartupHold.hold();
+            boolean ok;
+            try {
+                ok = StartupChooser.open(c, false, DATA, new Runnable() { @Override public void run() {
+                    StartupHold.release("start-up chooser closed");
+                    main.postDelayed(new Runnable() { @Override public void run() { ProfileCache.refresh(c); } }, 5000);
+                } });
+            } catch (Throwable t) {
+                Log.w(TAG, "start-up chooser in Home", t);
+                ok = false;
+            }
+            if (ok) { Log.i(TAG, "start-up chooser opened in Home (" + how + ")"); return; }
+            StartupHold.release("start-up chooser not opened here");
+            if (StartupScreen.startChooser(c)) Log.i(TAG, "start-up chooser started in ccNC Profile (" + how + ")");
+        } });
+    }
 
     /**
      * A soft start (the car switched off and on while the head unit only slept): nothing restarts, but SystemUI makes
@@ -60,25 +107,30 @@ public final class StartupProfile extends BroadcastReceiver {
             long wait = SystemClock.elapsedRealtime() + 10000;
             while (!StartupScreen.pending() && SystemClock.elapsedRealtime() < wait) SystemClock.sleep(250);
             if (!StartupScreen.pending()) return;                      // ACC change without a new start-up screen
-            if (StartupScreen.startChooser(c)) Log.i(TAG, "start-up chooser started after an ACC change (soft start)");
+            openChooser(c, "after an ACC change: soft start");
         } }, "ccncStartupAgain").start();
     }
 
     static synchronized void run(Context ctx) {
         if (started) return;
         started = true;
-        if (SystemClock.elapsedRealtime() > 5 * 60 * 1000L) return;   // not a fresh start (Home restarted later)
         final Context c = ctx.getApplicationContext();
+        if (SystemClock.elapsedRealtime() > 5 * 60 * 1000L) {         // not a fresh start (Home restarted later)
+            ProfileCache.refresh(c);
+            return;
+        }
+        StartupHold.hold();   // (main thread) until it's known whether the start-up screen comes, then until it's gone
         new Thread(new Runnable() { @Override public void run() {
             if (StartupScreen.patchActive()) {
                 // Home can be up before SystemUI has made its start-up screen: give it a moment to exist.
                 long wait = SystemClock.elapsedRealtime() + 30000;
                 while (!"true".equals(prop("sys.boot.show_screen")) && SystemClock.elapsedRealtime() < wait) SystemClock.sleep(300);
-                if (StartupScreen.pending() && StartupScreen.startChooser(c)) {
-                    Log.i(TAG, "start-up chooser started (ccNC Profile)");
+                if (StartupScreen.pending()) {
+                    openChooser(c, "start-up");
                     return;
                 }
             }
+            main.post(new Runnable() { @Override public void run() { StartupHold.release("no ccNC start-up chooser"); } });
             int def = Profiles.setting(c, "default_profile", -1);
             int auto = Profiles.setting(c, "auto_advance", 3);
             boolean early = EARLY_CONFIRM && Profiles.setting(c, "auto_advance_custom", 0) == 1 && auto >= 0 && auto < STOCK_AUTO;

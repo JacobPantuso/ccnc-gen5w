@@ -382,12 +382,55 @@ public final class SoundSection extends Section {
 
         void tone(int bass, int mid, int treble) {
             if (bass < 0 || mid < 0 || treble < 0) return;
-            call("setBassMidTreb", new Class[]{int.class, int.class, int.class}, clamp(bass), clamp(mid), clamp(treble));
+            stepTo(new int[]{BASS, MIDDLE, TREBLE}, new int[]{clamp(bass), clamp(mid), clamp(treble)});
         }
 
         void fadeBalance(int fade, int balance) {
             if (fade < 0 || balance < 0) return;
-            call("setFadeBalance", new Class[]{int.class, int.class}, clamp(fade), clamp(balance));
+            stepTo(new int[]{FADE, BALANCE}, new int[]{clamp(fade), clamp(balance)});
+        }
+
+        /**
+         * The car's audio controller takes tone and position changes one level at a time: the stock sound screen's
+         * slider sends every level as it is dragged, and a jump sent in one go (+3 to +10 on release) was not kept.
+         * So the change goes out one level per call, 60 ms apart, on a worker thread; a newer target replaces an
+         * older one that hasn't finished.
+         */
+        private final Object stepLock = new Object();
+        private int[] stepTypes, stepTarget;
+        private Thread stepper;
+
+        private void stepTo(int[] types, int[] target) {
+            synchronized (stepLock) {
+                stepTypes = types;
+                stepTarget = target;
+                if (stepper != null) return;   // the running worker picks up the new target
+                stepper = new Thread(new Runnable() { @Override public void run() { stepLoop(); } }, "ccncSoundStep");
+                stepper.start();
+            }
+        }
+
+        private void stepLoop() {
+            for (int guard = 0; guard < 80; guard++) {
+                int[] types, target;
+                synchronized (stepLock) { types = stepTypes; target = stepTarget; }
+                int[] now = new int[types.length];
+                boolean done = true;
+                for (int i = 0; i < types.length; i++) {
+                    int cur = setting(types[i]);
+                    if (cur < 0) { synchronized (stepLock) { stepper = null; } return; }
+                    now[i] = cur == target[i] ? cur : cur + (target[i] > cur ? 1 : -1);
+                    if (now[i] != cur) done = false;
+                }
+                if (done) {
+                    synchronized (stepLock) { if (stepTarget == target) { stepper = null; return; } }
+                    continue;   // a newer target came in meanwhile
+                }
+                if (types.length == 3) call("setBassMidTreb", new Class[]{int.class, int.class, int.class}, now[0], now[1], now[2]);
+                else call("setFadeBalance", new Class[]{int.class, int.class}, now[0], now[1]);
+                try { Thread.sleep(60); } catch (InterruptedException e) { break; }
+            }
+            synchronized (stepLock) { stepper = null; }
         }
 
         private static int clamp(int v) { return Math.max(0, Math.min(20, v)); }

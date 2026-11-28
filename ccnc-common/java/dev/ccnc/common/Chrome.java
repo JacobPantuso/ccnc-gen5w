@@ -225,8 +225,8 @@ public final class Chrome {
                     int bullet = t.indexOf('\u2022');
                     artist = (bullet >= 0 ? t.substring(0, bullet) : t).trim();
                 }
-                if (i.hasExtra("audio_total_time")) dur = ms(i.getLongExtra("audio_total_time", 0));
-                if (i.hasExtra("audio_current_time")) pos = ms(i.getLongExtra("audio_current_time", 0));
+                if (i.hasExtra("audio_total_time")) { long t = i.getLongExtra("audio_total_time", 0); secs = seconds(t); dur = secs ? t * 1000 : t; }
+                if (i.hasExtra("audio_current_time")) { long t = i.getLongExtra("audio_current_time", 0); pos = secs ? t * 1000 : t; }
                 byte[] b = i.getByteArrayExtra("artwork_raw_image");
                 if (b != null && b.length > 0) {
                     try {
@@ -240,7 +240,13 @@ public final class Chrome {
         }
 
         private static String nz(String s) { return s == null ? "" : s; }
-        private static long ms(long t) { return t > 0 && t < 20000 ? t * 1000 : t; }
+        /**
+         * Times come in seconds or milliseconds depending on the source. The unit is read from the song's length
+         * (no song is under 20 s long in ms) and used for the position too: the position on its own is under 20000
+         * for the first 20 s of every song in ms, which read as seconds put the bar at full.
+         */
+        private boolean secs;
+        private static boolean seconds(long total) { return total > 0 && total < 20000; }
 
         @Override protected void onAttachedToWindow() {
             super.onAttachedToWindow();

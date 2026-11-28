@@ -250,7 +250,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         registerReceiver(packages, mf);
 
         reload();
-        phone.start();
+        dev.ccnc.common.StartupHold.run("phone", new Runnable() { @Override public void run() { phone.start(); } });
         handleExtras(getIntent());
     }
 
@@ -273,11 +273,16 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         super.onResume();
         if (splitHider == null) splitHider = new SplitScreenHider(this);
         splitHider.apply();
-        startService(new android.content.Intent(this, VolumeOsdService.class));
+        // Held while the car's start-up screen (and ccNC's chooser) is up: see dev.ccnc.common.StartupHold.
+        dev.ccnc.common.StartupHold.run("volumeOsd", new Runnable() { @Override public void run() {
+            startService(new android.content.Intent(HomeActivity.this, VolumeOsdService.class));
+        } });
         if (nowPlaying == null) nowPlaying = new NowPlaying(this, new NowPlaying.Listener() {
             @Override public void onNowPlaying(NowPlaying n) { applyNowPlaying(n); }
         });
-        nowPlaying.start();
+        dev.ccnc.common.StartupHold.run("nowPlaying", new Runnable() { @Override public void run() {
+            if (resumed) nowPlaying.start();
+        } });
         resumed = true;
         IntentFilter f = new IntentFilter(Intent.ACTION_TIME_TICK);
         f.addAction(Intent.ACTION_TIME_CHANGED);
@@ -290,9 +295,12 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         welcome.setDriver(demo ? "Jacob" : driverName());
         refreshSlots();
         if (profileWatch == null) profileWatch = dev.ccnc.common.Profiles.watch(this, new dev.ccnc.common.Profiles.Listener() {
-            @Override public void onProfilesChanged() { welcome.setDriver(demo ? "Jacob" : driverName()); }
+            @Override public void onProfilesChanged() {
+                welcome.setDriver(demo ? "Jacob" : driverName());
+                if (!dev.ccnc.common.StartupHold.holding()) dev.ccnc.common.ProfileCache.refresh(HomeActivity.this);   // the start-up chooser's copy
+            }
         });
-        weather.start();
+        dev.ccnc.common.StartupHold.run("weather", new Runnable() { @Override public void run() { weather.start(); } });
         if (getIntent().getBooleanExtra("diag", false)) {
             getIntent().removeExtra("diag");
             weather.logDiagnostics();
@@ -461,7 +469,10 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
             }
         }
         evHandler.removeCallbacks(evTick);
-        if (ev) evHandler.post(evTick);
+        if (ev) dev.ccnc.common.StartupHold.run("ev", new Runnable() { @Override public void run() {
+            evHandler.removeCallbacks(evTick);
+            if (resumed) evHandler.post(evTick);
+        } });
     }
 
     private AppRepo.Entry entryFor(String key) {

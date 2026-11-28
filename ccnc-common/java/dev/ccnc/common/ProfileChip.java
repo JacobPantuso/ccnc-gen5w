@@ -75,10 +75,11 @@ public final class ProfileChip extends View implements Profiles.Listener {
     /** Re-reads off the UI thread (binder + provider calls), then redraws. */
     @Override public void onProfilesChanged() {
         final int seq = ++loadSeq;
+        final boolean held = StartupHold.holding();   // at start-up: this app's copy (ProfileCache), ccNC Profile isn't woken
         new Thread(new Runnable() { @Override public void run() {
             final int act = Profiles.active(a);
             final String n = act >= 0 ? Profiles.name(a, act) : "";
-            final Bitmap p = act >= 0 ? Profiles.photo(a, act) : null;
+            final Bitmap p = act >= 0 ? (held ? ProfileCache.photo(a, act, false) : Profiles.photo(a, act)) : null;
             post(new Runnable() { @Override public void run() {
                 if (seq != loadSeq) return;
                 active = act;

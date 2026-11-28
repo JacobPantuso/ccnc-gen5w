@@ -92,8 +92,8 @@ final class VehicleSource implements Media.Source, RemoteController.OnClientUpda
         if (i.hasExtra("artist_name")) { String ar = i.getStringExtra("artist_name"); int b = ar == null ? -1 : ar.indexOf('\u2022'); if (b >= 0) ar = ar.substring(0, b); state.artist = ar == null ? null : ar.trim(); }
         if (i.hasExtra("album_name")) state.album = i.getStringExtra("album_name");
         if (i.hasExtra("bluetooth_device_name")) state.album = i.getStringExtra("bluetooth_device_name");
-        if (i.hasExtra("audio_total_time")) state.durationMs = ms(i.getLongExtra("audio_total_time", 0));
-        if (i.hasExtra("audio_current_time")) state.positionMs = ms(i.getLongExtra("audio_current_time", 0));
+        if (i.hasExtra("audio_total_time")) { long t = i.getLongExtra("audio_total_time", 0); secs = t > 0 && t < 20000; state.durationMs = secs ? t * 1000 : t; }
+        if (i.hasExtra("audio_current_time")) { long t = i.getLongExtra("audio_current_time", 0); state.positionMs = secs ? t * 1000 : t; }
         if (i.hasExtra("playstate")) state.playing = i.getIntExtra("playstate", 1) == 1;
         byte[] art = i.getByteArrayExtra("artwork_raw_image");
         if (art != null && art.length > 0) {
@@ -104,8 +104,12 @@ final class VehicleSource implements Media.Source, RemoteController.OnClientUpda
         emit();
     }
 
-    /** Times are seconds or milliseconds depending on the source; nothing real is under 20 s long in ms. */
-    private static long ms(long t) { return t > 0 && t < 20000 ? t * 1000 : t; }
+    /**
+     * Times are seconds or milliseconds depending on the source. The unit comes from the song's length (nothing real
+     * is under 20 s long in ms) and applies to the position too: on its own the position is under 20000 for the first
+     * 20 s of every song in ms, which read as seconds put the progress at the end.
+     */
+    private boolean secs;
 
     private static String keysOf(Bundle b) {
         StringBuilder sb = new StringBuilder();
