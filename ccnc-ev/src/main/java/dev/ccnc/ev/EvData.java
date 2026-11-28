@@ -81,6 +81,21 @@ final class EvData {
 
     boolean available() { return mgr != null; }
 
+    /** Made-up values for the preview mode (no car): a typical evening at 76 %, charging optional. */
+    static Snapshot demo(boolean charging) {
+        Snapshot s = new Snapshot();
+        s.soc = 76; s.dte = 351; s.tripUnit = 1; s.chargeState = charging ? 1 : 0; s.remMin = charging ? 95 : 0;
+        s.targetSlow = 90; s.targetQuick = 80; s.fast = 0; s.std = charging ? 1 : 0; s.dteSlow = 412; s.dteQuick = 366;
+        s.whDrive = 8400; s.whElec = 1300; s.whClimate = 2100; s.whBatt = 600;
+        s.depart = new int[28];
+        int[] d1 = {7, 3, 0, 1, 1, 1, 1, 1, 0, 1}; // 7:30, weekdays, set
+        System.arraycopy(d1, 0, s.depart, 0, 10);
+        s.depart[20] = 1; s.depart[21] = 12; s.depart[23] = 1; // climate 20.0 °C + defog
+        s.offPeak = new int[]{23, 0, 6, 0, 0, 0, 0, 0, 1, 0, 0, 0};
+        s.live = true;
+        return s;
+    }
+
     private int[] arr(String name) {
         try { Object o = mgr.getClass().getMethod(name).invoke(mgr); return o instanceof int[] ? (int[]) o : null; }
         catch (Throwable t) { return null; }

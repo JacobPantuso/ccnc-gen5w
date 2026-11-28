@@ -58,11 +58,12 @@ public final class Widgets {
         @Override protected void onDraw(Canvas c) {
             int w = getWidth(), h = getHeight();
             rect.set(0, 0, w, h);
-            track.setColor(on ? Palette.ACCENT_DIM : Palette.alpha(Palette.OFF, 0x66));
+            // Light themes: a darker off track and a white thumb (the pale thumb vanishes on a light card).
+            track.setColor(on ? Palette.ACCENT_DIM : Palette.alpha(Palette.OFF, Palette.LIGHT ? 0x8C : 0x66));
             c.drawRoundRect(rect, h / 2f, h / 2f, track);
             int s = h - pad * 2;
             int left = on ? w - pad - s : pad;
-            thumb.setColor(on ? Palette.ACCENT : 0xFFDDE3E8);
+            thumb.setColor(on ? Palette.ACCENT : Palette.LIGHT ? 0xFFFFFFFF : 0xFFDDE3E8);
             rect.set(left, pad, left + s, pad + s);
             c.drawOval(rect, thumb);
         }

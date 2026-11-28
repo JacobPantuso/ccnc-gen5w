@@ -82,7 +82,24 @@ final class NowPlaying {
                 } catch (Throwable ignored) {}
             }
         }
+        fetchArt();
         listener.onNowPlaying(this);
+    }
+
+    private String artTried;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** No cover yet for this title: the one dev.ccnc.common.NowPlayingArt collected (sent while the card wasn't listening). */
+    private void fetchArt() {
+        if (art != null || title == null || title.equals(artTried)) return;
+        artTried = title;
+        final String act = action, t = title;
+        new Thread(new Runnable() { @Override public void run() {
+            final Bitmap b = dev.ccnc.common.NowPlayingArt.fetch(ctx, act, t, 2);
+            if (b != null) ui.post(new Runnable() { @Override public void run() {
+                if (art == null && t.equals(title) && act.equals(action)) { art = b; listener.onNowPlaying(NowPlaying.this); }
+            } });
+        } }, "ccncArt").start();
     }
 
     private static String clean(String s) { return s == null || s.trim().isEmpty() ? null : s.trim(); }

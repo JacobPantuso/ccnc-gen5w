@@ -53,7 +53,7 @@ public final class Page {
         Drawable d = Skin.nine(c, "set_etc_h_divider");
         if (d != null) bar.setBackground(d); else bar.setBackgroundColor(Skin.HEAD);
         r.addView(bar, lp(2, 36, 44, 24));
-        TextView tv = Skin.text(c, t, 28, Skin.HEAD, false, 32, 2);
+        TextView tv = Skin.text(c, t, 28, Skin.head(), false, 32, 2);
         FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(Skin.LIST_W - 92, -2, Gravity.CENTER_VERTICAL);
         tl.leftMargin = 62;
         r.addView(tv, tl);
@@ -156,10 +156,10 @@ public final class Page {
             content.addView(AmbientColors.view(c, AmbientColors.of(t)), sl);
         }
         LinearLayout col = column();
-        TextView tv = Skin.text(c, t, 32, Skin.TEXT, true, 40, 3);
+        TextView tv = Skin.text(c, t, 32, Skin.fg(), true, 40, 3);
         col.addView(tv);
         TextView sv = null;
-        if (hasSub) { sv = Skin.text(c, sub, 28, Skin.SUB, false, 32, 5); col.addView(sv, top(10)); }
+        if (hasSub) { sv = Skin.text(c, sub, 28, Skin.sub(), false, 32, 5); col.addView(sv, top(10)); }
         LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, -2, 1f);
         cl.leftMargin = 37;
         content.addView(col, cl);
@@ -203,7 +203,7 @@ public final class Page {
      */
     public Row note(String t) {
         FrameLayout r = new FrameLayout(c);
-        TextView tv = Skin.text(c, t, 28, Skin.SUB, false, 36, 8);
+        TextView tv = Skin.text(c, t, 28, Skin.sub(), false, 36, 8);
         FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(Skin.LIST_W - 44 - 50, -2);
         tl.leftMargin = 44; tl.topMargin = 26; tl.bottomMargin = 26;
         r.addView(tv, tl);
@@ -226,15 +226,15 @@ public final class Page {
         content.setPadding(44, 18, 0, 18);
         content.setMinimumHeight(124);
         LinearLayout col = column();
-        TextView tv = Skin.text(c, t, 32, Skin.TEXT, true, 40, 2);
+        TextView tv = Skin.text(c, t, 32, Skin.fg(), true, 40, 2);
         col.addView(tv);
         TextView sv = null;
-        if (hasSub) { sv = Skin.text(c, v, 28, Skin.SUB, false, 32, 2); col.addView(sv, top(10)); }
+        if (hasSub) { sv = Skin.text(c, v, 28, Skin.sub(), false, 32, 2); col.addView(sv, top(10)); }
         LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, -2, 1f);
         cl.rightMargin = arrow ? 20 : 30;
         content.addView(col, cl);
         if (arrow) {
-            ImageView a = Skin.image(c, Skin.states(c, "co_ic_arrow_right"));
+            ImageView a = Skin.image(c, Skin.statesInked(c, "co_ic_arrow_right"));
             LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(40, 40);
             al.rightMargin = 50;
             content.addView(a, al);
@@ -254,9 +254,9 @@ public final class Page {
     /** USM slider delegate: title, value at right, -/+ spinner buttons and the bco_slider bar. set() on release / +/-. */
     public Row slider(String t, final int min, final int max, final Fn.Int get, final Fn.SetInt set) {
         FrameLayout r = new FrameLayout(c);
-        TextView tv = Skin.text(c, t, 32, Skin.TEXT, true, 40, 1);
+        TextView tv = Skin.text(c, t, 32, Skin.fg(), true, 40, 1);
         r.addView(tv, lp(Skin.LIST_W - 44 - 160, -2, 44, 18));
-        final TextView val = Skin.text(c, String.valueOf(safe(get)), 28, Skin.SUB, false, 32, 1);
+        final TextView val = Skin.text(c, String.valueOf(safe(get)), 28, Skin.sub(), false, 32, 1);
         FrameLayout.LayoutParams vl = new FrameLayout.LayoutParams(-2, -2, Gravity.RIGHT | Gravity.TOP);
         vl.rightMargin = 28; vl.topMargin = 26;
         r.addView(val, vl);
@@ -280,7 +280,7 @@ public final class Page {
     private View spin(final boolean plus, final Bar bar) {
         FrameLayout b = new FrameLayout(c);
         b.setBackground(Skin.states(c, "bco_sp_btn_bg"));
-        ImageView ic = Skin.image(c, Skin.states(c, plus ? "bco_sp_ic_plus" : "bco_sp_ic_minus"));
+        ImageView ic = Skin.image(c, Skin.statesInked(c, plus ? "bco_sp_ic_plus" : "bco_sp_ic_minus"));
         b.addView(ic, new FrameLayout.LayoutParams(60, 60));
         b.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { bar.step(plus ? 1 : -1); }
@@ -292,12 +292,16 @@ public final class Page {
         final int min, max; int value;
         Fn.SetInt listener, release;
         private final Drawable bg, fill, knob;
+        private android.graphics.Paint track;
         Bar(Context c, int min, int max, int value) {
             super(c);
             this.min = min; this.max = Math.max(min + 1, max); this.value = Math.max(min, Math.min(this.max, value));
             bg = Skin.nine(c, "bco_slider_bg_n");
             fill = Skin.nine(c, "bco_slider_bg_bar_n");
-            knob = Skin.bitmap(c, "bco_slider_btn_box_n");
+            // The knob art is light grey (made for a dark page): in light themes it is drawn in the sub-text ink.
+            knob = dev.ccnc.common.Palette.LIGHT
+                    ? new android.graphics.drawable.BitmapDrawable(c.getResources(), dev.ccnc.common.Art.ink(Skin.bmp(c, "bco_slider_btn_box_n"), Skin.sub()))
+                    : Skin.bitmap(c, "bco_slider_btn_box_n");
         }
         void step(int d) {
             value = Math.max(min, Math.min(max, value + d));
@@ -308,7 +312,10 @@ public final class Page {
         @Override protected void onDraw(Canvas cv) {
             int w = getWidth(), h = getHeight(), th = 8, ty = (h - th) / 2;
             int kx = knobX();
-            if (bg != null) { bg.setBounds(0, ty, w, ty + th); bg.draw(cv); }
+            if (dev.ccnc.common.Palette.LIGHT) { // the track art is a dark slate bar: a light grey groove instead
+                if (track == null) { track = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG); track.setColor(dev.ccnc.common.Palette.alpha(dev.ccnc.common.Palette.TEXT, 0x26)); }
+                cv.drawRoundRect(new android.graphics.RectF(0, ty, w, ty + th), th / 2f, th / 2f, track);
+            } else if (bg != null) { bg.setBounds(0, ty, w, ty + th); bg.draw(cv); }
             if (fill != null) { fill.setBounds(0, ty, kx + 30, ty + th); fill.draw(cv); }
             if (knob != null) { knob.setBounds(kx, 0, kx + 60, 60); knob.draw(cv); }
         }
@@ -332,17 +339,25 @@ public final class Page {
     /** ccNC SLIDINGSWITCH delegate: title, then segments 278 x 78 (bco_sdsw_op_bg / _btn_s); tap = set(index). */
     public Row segmented(String t, String[] labels, final Fn.Int get, final Fn.SetInt set) {
         FrameLayout r = new FrameLayout(c);
-        TextView tv = Skin.text(c, t, 32, Skin.TEXT, true, 40, 1);
+        TextView tv = Skin.text(c, t, 32, Skin.fg(), true, 40, 1);
         r.addView(tv, lp(Skin.LIST_W - 74, -2, 44, 18));
         LinearLayout sw = new LinearLayout(c);
         Drawable sbg = Skin.nine(c, "bco_sdsw_op_bg_n");
+        if (dev.ccnc.common.Palette.LIGHT) { // the art is a faint light-blue wash, invisible on a light page
+            android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+            g.setCornerRadius(12);
+            g.setColor(dev.ccnc.common.Palette.alpha(dev.ccnc.common.Palette.TEXT, 0x12));
+            g.setStroke(2, dev.ccnc.common.Palette.alpha(dev.ccnc.common.Palette.TEXT, 0x26));
+            sbg = g;
+        }
         if (sbg != null) sw.setBackground(sbg);
         int cur = safe(get);
         for (int i = 0; i < labels.length; i++) {
             final int idx = i;
             FrameLayout seg = new FrameLayout(c);
             if (i == cur) { Drawable sel = Skin.nine(c, "bco_sdsw_op_btn_s"); if (sel != null) seg.setBackground(sel); }
-            TextView l = Skin.text(c, labels[i], 28, Skin.TEXT, i == cur, 0, 1);
+            // The selected segment is ccNC's dark teal art in every theme, so its label stays light.
+            TextView l = Skin.text(c, labels[i], 28, i == cur ? Skin.TEXT : Skin.fg(), i == cur, 0, 1);
             l.setGravity(Gravity.CENTER);
             seg.addView(l, new FrameLayout.LayoutParams(-1, -1));
             seg.setOnClickListener(new View.OnClickListener() {
@@ -377,7 +392,8 @@ public final class Page {
     private void line(FrameLayout r) {
         View l = new View(c);
         Drawable d = Skin.nine(c, "co_bg_list_line");
-        if (d != null) l.setBackground(d); else l.setBackgroundColor(0x33FFFFFF);
+        if (dev.ccnc.common.Palette.LIGHT) l.setBackgroundColor(Skin.line()); // the art is a white line
+        else if (d != null) l.setBackground(d); else l.setBackgroundColor(0x33FFFFFF);
         r.addView(l, new FrameLayout.LayoutParams(-1, 1, Gravity.BOTTOM));
     }
 

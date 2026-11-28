@@ -45,7 +45,7 @@ public final class Ask {
         try {
             final Dialog d = new Dialog(a, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen);
             d.requestWindowFeature(Window.FEATURE_NO_TITLE);
-            d.getWindow().setBackgroundDrawable(new ColorDrawable(0x99000000));
+            d.getWindow().setBackgroundDrawable(new ColorDrawable(Palette.LIGHT ? 0x66000000 : 0x99000000));
             d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
                     | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             final float dp = a.getResources().getDisplayMetrics().density;
@@ -53,7 +53,7 @@ public final class Ask {
             LinearLayout box = new LinearLayout(a);
             box.setOrientation(LinearLayout.VERTICAL);
             GradientDrawable bg = new GradientDrawable();
-            bg.setColor(0xFA17212C);
+            bg.setColor(Palette.LIGHT ? 0xFAF4F7FA : 0xFA17212C);   // light themes: a light panel for the dark ink
             bg.setCornerRadius(24 * dp);
             bg.setStroke(Math.max(1, (int) dp), Palette.BORDER);
             box.setBackgroundDrawable(bg);
@@ -72,7 +72,7 @@ public final class Ask {
                     : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
             if (maxLen > 0) e.setFilters(new InputFilter[] { new InputFilter.LengthFilter(maxLen) });
             GradientDrawable eb = new GradientDrawable();
-            eb.setColor(0x33000000);
+            eb.setColor(Palette.LIGHT ? 0x0F000000 : 0x33000000);
             eb.setCornerRadius(14 * dp);
             eb.setStroke(Math.max(1, (int) dp), Palette.ACCENT_DIM);
             e.setBackgroundDrawable(eb);
@@ -128,7 +128,7 @@ public final class Ask {
         TextView t = label(a, s, 20, Palette.TEXT, primary ? Fonts.SEMIBOLD : Fonts.REGULAR);
         GradientDrawable g = new GradientDrawable();
         g.setCornerRadius(16 * dp);
-        g.setColor(primary ? Palette.alpha(Palette.ACCENT, 0x66) : 0x26FFFFFF);
+        g.setColor(primary ? Palette.alpha(Palette.ACCENT, 0x66) : Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x1A) : 0x26FFFFFF);
         t.setBackgroundDrawable(g);
         t.setPadding(Math.round(28 * dp), Math.round(12 * dp), Math.round(28 * dp), Math.round(12 * dp));
         t.setSoundEffectsEnabled(false);

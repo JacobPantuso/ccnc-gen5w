@@ -138,6 +138,7 @@ abstract class Board extends View {
     protected void icon(Canvas c, String name, float l, float t, float s) {
         Bitmap ic = Art.icon(getContext(), name);
         if (ic == null) return;
+        ic = Art.ink(ic); // light themes: the white line art in dark ink
         r.set(X(l), X(t), X(l + s), X(t + s));
         c.drawBitmap(ic, null, r, bmp);
     }

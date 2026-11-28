@@ -390,7 +390,7 @@ public final class MainActivity extends Activity implements Profiles.Listener {
                     c.drawCircle(x, my, d / 2f, img);
                     img.setShader(null);
                 } else {
-                    img.setColor(0x33FFFFFF);
+                    img.setColor(Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x22) : 0x33FFFFFF);
                     c.drawCircle(x, my, d / 2f, img);
                 }
                 if (i == down) {

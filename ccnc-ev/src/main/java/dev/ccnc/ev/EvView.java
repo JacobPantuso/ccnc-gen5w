@@ -19,7 +19,9 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Locale;
 
+import dev.ccnc.common.Art;
 import dev.ccnc.common.Fonts;
+import dev.ccnc.common.Palette;
 
 /** ccNC EV scene (evhmi): Home.Main with the car battery graph, plus the tab bar (Home, Energy Info, Charging, Setting). */
 final class EvView extends View {
@@ -27,6 +29,19 @@ final class EvView extends View {
     interface Actions { void openStock(); }
 
     private static final int HIGHLIGHT = 0xFF27A6D0, NORMAL = 0xFFDFEDFE, DIM = 0x80DFEDFE;
+    /** Theme-aware colours, read at draw time: the dark-theme values above as before, ccNC's dark ink in light themes. */
+    private static int normal() { return Palette.LIGHT ? Palette.TEXT : NORMAL; }
+    private static int dim() { return Palette.LIGHT ? Palette.SUBTEXT : DIM; }
+    /** Empty slider / ratio track and the charge-limit range on it. */
+    private static int track() { return Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x1F) : 0xFF19242E; }
+    private static int range() { return Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x3D) : 0xFF364350; }
+    /** Coloured text (titles in the energy dot colours, highlight headings): darkened in light themes for contrast. */
+    private static int ink(int color) {
+        if (!Palette.LIGHT) return color;
+        int r = (color >> 16) & 0xFF, g = (color >> 8) & 0xFF, b = color & 0xFF;
+        return 0xFF000000 | (r * 62 / 100) << 16 | (g * 62 / 100) << 8 | b * 62 / 100;
+    }
+
     private static final String[] TABS = {"ev_home", "energy_info", "charging", "setting"};
 
     private final Actions actions;
@@ -81,8 +96,23 @@ final class EvView extends View {
 
     private float X(float d) { return d * k; }
 
+    /** List divider: the ccNC line art in dark themes, the theme divider colour in light ones. */
+    private void line(Canvas c, float x, float y, float w) {
+        if (!Palette.LIGHT) { img(c, "co_bg_list_line.9", x, y, w, 2f, true); return; }
+        p.setColor(Palette.DIVIDER);
+        c.drawRect(X(x), X(y), X(x + w), X(y + 2f), p);
+    }
+
     private void img(Canvas c, String name, float x, float y, float w, float h, boolean nine) {
-        Bitmap b = bmp(name, nine);
+        draw(c, bmp(name, nine), x, y, w, h);
+    }
+
+    /** White icon art drawn straight on the background: redrawn in dark ink in light themes (unchanged in dark ones). */
+    private void icon(Canvas c, String name, float x, float y, float w, float h) {
+        draw(c, Art.ink(bmp(name, false)), x, y, w, h);
+    }
+
+    private void draw(Canvas c, Bitmap b, float x, float y, float w, float h) {
         if (b == null) return;
         r.set(X(x), X(y), X(x + w), X(y + h));
         c.drawBitmap(b, null, r, p);
@@ -90,6 +120,18 @@ final class EvView extends View {
 
     /** ccNC card (ev_bg_main.9) drawn as a real 9-patch, so its rounded corners keep their shape at any size. */
     private void card(Canvas c, float x, float y, float w, float h) {
+        if (Palette.LIGHT) {
+            // The ccNC card art is a dark panel; light themes get the theme's card fill with a hairline border.
+            r.set(X(x), X(y), X(x + w), X(y + h));
+            p.setColor(Palette.CARD);
+            c.drawRoundRect(r, X(16f), X(16f), p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(Math.max(1f, X(1.5f)));
+            p.setColor(Palette.BORDER);
+            c.drawRoundRect(r, X(16f), X(16f), p);
+            p.setStyle(Paint.Style.FILL);
+            return;
+        }
         android.graphics.drawable.Drawable d = dev.ccnc.common.NinePatchArt.patch(getContext(), "ev_bg_main.9");
         if (d == null) { img(c, "ev_bg_main.9", x, y, w, h, true); return; }
         d.setBounds(Math.round(X(x)), Math.round(X(y)), Math.round(X(x + w)), Math.round(X(y + h)));
@@ -148,14 +190,14 @@ final class EvView extends View {
         String u = s.km() ? "km" : "mi";
         float dw = width(d, 78f, Fonts.SEMIBOLD) + 10f + width(u, 40f, Fonts.REGULAR);
         float dx = 1920f - 178f - dw;
-        txt(c, d, dx, 38f + 110f, 78f, NORMAL, Fonts.SEMIBOLD, Paint.Align.LEFT);
-        txt(c, u, dx + width(d, 78f, Fonts.SEMIBOLD) + 10f, 38f + 110f, 40f, DIM, Fonts.REGULAR, Paint.Align.LEFT);
+        txt(c, d, dx, 38f + 110f, 78f, normal(), Fonts.SEMIBOLD, Paint.Align.LEFT);
+        txt(c, u, dx + width(d, 78f, Fonts.SEMIBOLD) + 10f, 38f + 110f, 40f, dim(), Fonts.REGULAR, Paint.Align.LEFT);
         if (chg) {
             // q037 realTimeChargingInfo: 40 px icon + "AC Charging" 32 px SemiBold dim, below the battery graph.
             String t = s.fast > 0 ? "DC Charging" : "AC Charging";
             float tw = width(t, 32f, Fonts.SEMIBOLD) + 49f, tx = gx + 262f - tw / 2f, ty = gy + 230f + 20f;
-            img(c, "ev_ic_main_charging_s", tx, ty, 40f, 40f, false);
-            txt(c, t, tx + 49f, ty + 31f, 32f, DIM, Fonts.SEMIBOLD, Paint.Align.LEFT);
+            icon(c, "ev_ic_main_charging_s", tx, ty, 40f, 40f);
+            txt(c, t, tx + 49f, ty + 31f, 32f, dim(), Fonts.SEMIBOLD, Paint.Align.LEFT);
         }
         String nd = nextDeparture();
         String[][] rows = chg && s.remMin > 0
@@ -168,9 +210,9 @@ final class EvView extends View {
     private void infoRows(Canvas c, float x, float y, float w, String[][] rows) {
         for (int i = 0; i < rows.length; i++) {
             float ry = y + i * 92f;
-            txt(c, rows[i][0], x, ry + 52f, 30f, DIM, Fonts.REGULAR, Paint.Align.LEFT);
-            txt(c, rows[i][1], x + w, ry + 52f, 32f, NORMAL, Fonts.SEMIBOLD, Paint.Align.RIGHT);
-            if (i < rows.length - 1) img(c, "co_bg_list_line.9", x, ry + 91f, w, 2f, true);
+            txt(c, rows[i][0], x, ry + 52f, 30f, dim(), Fonts.REGULAR, Paint.Align.LEFT);
+            txt(c, rows[i][1], x + w, ry + 52f, 32f, normal(), Fonts.SEMIBOLD, Paint.Align.RIGHT);
+            if (i < rows.length - 1) line(c, x, ry + 91f, w);
         }
     }
 
@@ -234,7 +276,7 @@ final class EvView extends View {
         for (int w : wh) if (w > 0) total += w;
         // HRatioGraph: 40 px bar at (62, 40); no-data = empty track.
         r.set(X(62f), X(40f), X(1857f), X(80f));
-        p.setColor(0xFF19242E);
+        p.setColor(track());
         c.drawRoundRect(r, X(20f), X(20f), p);
         if (total > 0) {
             float x = 62f, wAll = 1795f;
@@ -255,15 +297,16 @@ final class EvView extends View {
         for (int i = 0; i < 4; i++) {
             float x = 62f + i * 306f, y = 140f;
             card(c, x, y, 293f, 240f);
-            img(c, "ev_ic_widget_dot_0" + (i + 1), x + 20f, y + 20f, 16f, 16f, false);
-            txt(c, TITLE[i], x + 44f, y + 38f, 28f, DOT[i], Fonts.SEMIBOLD, Paint.Align.LEFT);
+            if (Palette.LIGHT) { p.setColor(DOT[i]); c.drawCircle(X(x + 28f), X(y + 28f), X(7f), p); } // dot art is pale on a light card
+            else img(c, "ev_ic_widget_dot_0" + (i + 1), x + 20f, y + 20f, 16f, 16f, false);
+            txt(c, TITLE[i], x + 44f, y + 38f, 28f, ink(DOT[i]), Fonts.SEMIBOLD, Paint.Align.LEFT);
             String amt = wh[i] < 0 ? "--" : String.format(Locale.US, "%.1f", wh[i] / 1000f);
-            txt(c, amt, x + 20f, y + 130f, 48f, NORMAL, Fonts.SEMIBOLD, Paint.Align.LEFT);
-            txt(c, "kWh", x + 30f + width(amt, 48f, Fonts.SEMIBOLD), y + 130f, 30f, NORMAL, Fonts.REGULAR, Paint.Align.LEFT);
-            img(c, "co_bg_list_line.9", x + 20f, y + 164f, 253f, 2f, true);
+            txt(c, amt, x + 20f, y + 130f, 48f, normal(), Fonts.SEMIBOLD, Paint.Align.LEFT);
+            txt(c, "kWh", x + 30f + width(amt, 48f, Fonts.SEMIBOLD), y + 130f, 30f, normal(), Fonts.REGULAR, Paint.Align.LEFT);
+            line(c, x + 20f, y + 164f, 253f);
             String pc = total > 0 && wh[i] >= 0 ? String.valueOf(Math.round(100f * wh[i] / total)) : "--";
-            txt(c, pc, x + 20f, y + 218f, 48f, NORMAL, Fonts.SEMIBOLD, Paint.Align.LEFT);
-            txt(c, "%", x + 30f + width(pc, 48f, Fonts.SEMIBOLD), y + 218f, 30f, NORMAL, Fonts.REGULAR, Paint.Align.LEFT);
+            txt(c, pc, x + 20f, y + 218f, 48f, normal(), Fonts.SEMIBOLD, Paint.Align.LEFT);
+            txt(c, "%", x + 30f + width(pc, 48f, Fonts.SEMIBOLD), y + 218f, 30f, normal(), Fonts.REGULAR, Paint.Align.LEFT);
         }
     }
 
@@ -275,14 +318,14 @@ final class EvView extends View {
         int[] dte = {s.dteSlow, s.dteQuick};
         for (int i = 0; i < 2; i++) {
             float x = 90f, y = 40f + i * 250f;
-            txt(c, title[i], x, y + 32f, 32f, NORMAL, Fonts.REGULAR, Paint.Align.LEFT);
+            txt(c, title[i], x, y + 32f, 32f, normal(), Fonts.REGULAR, Paint.Align.LEFT);
             float by = y + 70f;
             r.set(X(x), X(by), X(x + 860f), X(by + 40f));
-            p.setColor(0xFF19242E);
+            p.setColor(track());
             c.drawRoundRect(r, X(20f), X(20f), p);
             if (target[i] >= 0) {
                 r.set(X(x), X(by), X(x + 860f * target[i] / 100f), X(by + 40f));
-                p.setColor(0xFF364350);
+                p.setColor(range());
                 c.drawRoundRect(r, X(20f), X(20f), p);
             }
             if (soc >= 0) {
@@ -291,18 +334,21 @@ final class EvView extends View {
                 p.setColor(HIGHLIGHT);
                 c.drawRoundRect(r, X(20f), X(20f), p);
                 String t = soc + "%";
-                txt(c, t, x + Math.max(10f, cw - width(t, 28f, Fonts.REGULAR) - 20f), by + 30f, 28f, NORMAL, Fonts.REGULAR, Paint.Align.LEFT);
+                float tw = width(t, 28f, Fonts.REGULAR);
+                // On the highlight fill when it is wide enough (light text there in every theme), else on the track.
+                int tc = Palette.LIGHT && cw < tw + 30f ? Palette.TEXT : NORMAL;
+                txt(c, t, x + Math.max(10f, cw - tw - 20f), by + 30f, 28f, tc, Fonts.REGULAR, Paint.Align.LEFT);
             } else {
-                txt(c, "--%", x + 10f, by + 30f, 28f, NORMAL, Fonts.REGULAR, Paint.Align.LEFT);
+                txt(c, "--%", x + 10f, by + 30f, 28f, normal(), Fonts.REGULAR, Paint.Align.LEFT);
             }
             // Handle at the target: circle with the target value.
             if (target[i] >= 0) {
                 float hx = x + 860f * target[i] / 100f - 47f;
-                p.setColor(0xFFDFEDFE);
+                p.setColor(Palette.LIGHT ? Palette.TEXT : 0xFFDFEDFE); // light themes: dark handle, light value
                 c.drawCircle(X(hx + 47f), X(by + 20f), X(47f), p);
-                txt(c, target[i] + "%", hx + 47f, by + 31f, 28f, 0xFF0B1117, Fonts.SEMIBOLD, Paint.Align.CENTER);
+                txt(c, target[i] + "%", hx + 47f, by + 31f, 28f, Palette.LIGHT ? 0xFFFFFFFF : 0xFF0B1117, Fonts.SEMIBOLD, Paint.Align.CENTER);
             }
-            if (dte[i] > 0) txt(c, "(About " + dte[i] + " " + (s.km() ? "km" : "mi") + ")", x, by + 90f, 28f, DIM, Fonts.REGULAR, Paint.Align.LEFT);
+            if (dte[i] > 0) txt(c, "(About " + dte[i] + " " + (s.km() ? "km" : "mi") + ")", x, by + 90f, 28f, dim(), Fonts.REGULAR, Paint.Align.LEFT);
         }
         schedule(c, 1080f, 30f, 1830f - 1080f);
     }
@@ -310,7 +356,7 @@ final class EvView extends View {
     /** Scheduled Charging and Climate (stock EV3 Charge Management), read-only: both departures and off-peak hours. */
     private void schedule(Canvas c, float x, float y, float w) {
         card(c, x - 30f, y, w + 60f, 370f);
-        txt(c, "Scheduled Charging and Climate", x, y + 54f, 30f, HIGHLIGHT, Fonts.SEMIBOLD, Paint.Align.LEFT);
+        txt(c, "Scheduled Charging and Climate", x, y + 54f, 30f, ink(HIGHLIGHT), Fonts.SEMIBOLD, Paint.Align.LEFT);
         String[][] rows = new String[3][];
         for (int i = 0; i < 2; i++) {
             String v;
@@ -356,11 +402,11 @@ final class EvView extends View {
             String st = pressed == i ? "p" : sel ? "s" : "n";
             // No pill: selected = bright icon + short accent underline (follows the ccNC theme), others dimmed.
             p.setAlpha(sel || pressed == i ? 255 : 150);
-            img(c, "ev_ic_tabbar_" + TABS[i] + "_" + (sel ? "s" : pressed == i ? "p" : "n"), x + 3f, y, 120f, 66f, false); // art is 120 x 66
+            icon(c, "ev_ic_tabbar_" + TABS[i] + "_" + (sel ? "s" : pressed == i ? "p" : "n"), x + 3f, y, 120f, 66f); // art is 120 x 66
             p.setAlpha(255);
             if (sel) {
                 r.set(X(x + 63f - 24f), X(y + 66f + 4f), X(x + 63f + 24f), X(y + 66f + 9f));
-                p.setColor(dev.ccnc.common.Palette.ACCENT);
+                p.setColor(Palette.ACCENT);
                 c.drawRoundRect(r, X(2.5f), X(2.5f), p);
             }
             tabBox[i].set(X(x0 + i * 200f - 37f + 0f) + X(0), X(y - 15f), X(x + 163f), X(y + 81f));

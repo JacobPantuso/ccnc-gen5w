@@ -48,6 +48,25 @@ final class Pic {
         return p;
     }
 
+    /**
+     * {@link #get} with white line art redrawn in the theme's ink (light themes, {@link dev.ccnc.common.Art#ink});
+     * the very same picture in dark themes. For art on the page background, not on an accent/coloured button.
+     */
+    static Pic9 ink(Context c, String name) {
+        Pic9 p = get(c, name);
+        android.graphics.Bitmap bm = dev.ccnc.common.Art.ink(p.bm);
+        if (bm == p.bm) return p;
+        Pic9 q = inked.get(bm);
+        if (q == null) {
+            q = new Pic9();
+            q.bm = bm; q.nine = p.nine; q.x1 = p.x1; q.x2 = p.x2; q.y1 = p.y1; q.y2 = p.y2;
+            inked.put(bm, q);
+        }
+        return q;
+    }
+
+    private static final Map<Bitmap, Pic9> inked = new HashMap<Bitmap, Pic9>();
+
     private static Pic9 load(Context c, String name) {
         Pic9 p = new Pic9();
         try {

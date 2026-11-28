@@ -88,7 +88,12 @@ final class VehicleSource implements Media.Source, RemoteController.OnClientUpda
             return;
         }
         if (i.hasExtra("valid_media")) state.valid = true;
-        if (i.hasExtra("filename")) state.title = i.getStringExtra("filename");
+        if (i.hasExtra("filename")) {
+            String t = i.getStringExtra("filename");
+            // A new track: its cover comes in a later update (or from ccNC Home's copy), not the previous track's.
+            if (t != null && !t.equals(state.title)) state.art = null;
+            state.title = t;
+        }
         if (i.hasExtra("artist_name")) { String ar = i.getStringExtra("artist_name"); int b = ar == null ? -1 : ar.indexOf('\u2022'); if (b >= 0) ar = ar.substring(0, b); state.artist = ar == null ? null : ar.trim(); }
         if (i.hasExtra("album_name")) state.album = i.getStringExtra("album_name");
         if (i.hasExtra("bluetooth_device_name")) state.album = i.getStringExtra("bluetooth_device_name");
@@ -101,7 +106,23 @@ final class VehicleSource implements Media.Source, RemoteController.OnClientUpda
         }
         receiving = true;
         state.fromVehicle = true;
+        fetchArt(i.getAction());
         emit();
+    }
+
+    private String artTried;
+
+    /** No cover yet for this title: ask ccNC Home for the one it collected (sent before ccNC Media opened). */
+    private void fetchArt(final String action) {
+        final String t = dev.ccnc.common.NowPlayingArt.clean(state.title);
+        if (state.art != null || t == null || t.equals(artTried)) return;
+        artTried = t;
+        new Thread(new Runnable() { @Override public void run() {
+            final android.graphics.Bitmap b = dev.ccnc.common.NowPlayingArt.fetch(ctx, action, t, 1);
+            if (b != null) handler.post(new Runnable() { @Override public void run() {
+                if (state.art == null && t.equals(dev.ccnc.common.NowPlayingArt.clean(state.title))) { state.art = b; emit(); }
+            } });
+        } }, "ccncArt").start();
     }
 
     /**

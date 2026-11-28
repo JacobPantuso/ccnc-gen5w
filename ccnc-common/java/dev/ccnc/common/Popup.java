@@ -31,7 +31,7 @@ public final class Popup extends Dialog {
         a = activity;
         dp = a.getResources().getDisplayMetrics().density;
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setBackgroundDrawable(new ColorDrawable(0x99000000));
+        getWindow().setBackgroundDrawable(new ColorDrawable(scrimColor()));
         FrameLayout root = new FrameLayout(a);
         root.setSoundEffectsEnabled(false);
         // An outside tap closes it once it has been open 3 s (fast taps behind it don't close it by accident).
@@ -42,7 +42,7 @@ public final class Popup extends Dialog {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setClickable(true);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFA17212C);
+        bg.setColor(panelColor());
         bg.setCornerRadius(24 * dp);
         bg.setStroke(Math.max(1, (int) dp), Palette.BORDER);
         box.setBackgroundDrawable(bg);
@@ -65,6 +65,15 @@ public final class Popup extends Dialog {
     }
 
     int px(float v) { return Math.round(v * dp); }
+
+    /** Popup panel fill: near-black on dark themes, near-white on light ones (the text is Palette.TEXT). */
+    public static int panelColor() { return Palette.LIGHT ? 0xFAF5F8FA : 0xFA17212C; }
+
+    /** Dim behind a popup: lighter on light themes so the screen doesn't go black. */
+    public static int scrimColor() { return Palette.LIGHT ? 0x66101820 : 0x99000000; }
+
+    /** Secondary button / chip fill over the panel. */
+    public static int softFill() { return Palette.LIGHT ? 0x1A16212A : 0x26FFFFFF; }
 
     TextView text(String s, float size, int color, int face) {
         TextView t = new TextView(a);
@@ -132,7 +141,7 @@ public final class Popup extends Dialog {
                 b.setPadding(px(22), px(12), px(22), px(12));
                 GradientDrawable g = new GradientDrawable();
                 g.setCornerRadius(24 * dp);
-                g.setColor(0x26FFFFFF);
+                g.setColor(softFill());
                 b.setBackgroundDrawable(g);
                 b.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Chrome.beep(a); dismiss(); pick.onPick(idx); } });
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);

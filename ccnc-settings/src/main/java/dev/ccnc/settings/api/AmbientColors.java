@@ -11,6 +11,8 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import dev.ccnc.common.Palette;
+
 /**
  * Colour swatches for the ambient-light options, keyed by the stock option names (HKMC_VehicleSetting
  * strings: hmc_presetcolor_*, kmc_presetcolor_*, single_color_*, dual_color_*, custom colours).
@@ -68,7 +70,7 @@ public final class AmbientColors {
                 p.setStyle(Paint.Style.FILL);
                 p.setShader(null);
                 if (cols == null) {
-                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2f); p.setColor(0x66FFFFFF);
+                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2f); p.setColor(Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x66) : 0x66FFFFFF);
                     cv.drawCircle(cx, cy, rad, p);
                     return;
                 }
@@ -84,7 +86,7 @@ public final class AmbientColors {
                     p.setColor(cols[1]); cv.drawArc(r, 0f, 180f, true, p);
                 }
                 p.setShader(null);
-                p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2f); p.setColor(0x40FFFFFF);
+                p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2f); p.setColor(Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x40) : 0x40FFFFFF);
                 cv.drawCircle(cx, cy, rad, p);
             }
         };

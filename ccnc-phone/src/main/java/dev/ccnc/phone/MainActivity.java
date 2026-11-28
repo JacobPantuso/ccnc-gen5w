@@ -112,7 +112,8 @@ public final class MainActivity extends Activity {
             for (int i = 0; i < n; i++) {
                 boolean sel = i == tab;
                 if (sel) Pic.get(getContext(), "bt_btn_bg_bottom_se.9.png").draw(c, i * w, 0, (i + 1) * w, getHeight());
-                Pic.Pic9 ic = Pic.get(getContext(), "bt_ic_tabbar_bottom_0" + (i + 1) + (sel ? "_s.png" : "_n.png"));
+                String icn = "bt_ic_tabbar_bottom_0" + (i + 1) + (sel ? "_s.png" : "_n.png");
+                Pic.Pic9 ic = sel ? Pic.get(getContext(), icn) : Pic.ink(getContext(), icn); // selected: on the accent tab
                 c.drawBitmap(ic.bm, i * w + (w - ic.w()) / 2f, (getHeight() - ic.h()) / 2f, p);
             }
         }
@@ -253,10 +254,10 @@ public final class MainActivity extends Activity {
         RowView(Context c, int style) { super(c); this.style = style; setClickable(true); }
         @Override protected void onDraw(Canvas c) {
             int w = getWidth(), hh = getHeight();
-            Pic.get(getContext(), isPressed() ? "co_bg_tabbar_list_p.9.png" : "co_bg_tabbar_list_n.9.png").draw(c, 0, 0, w, hh);
+            Pic.ink(getContext(), isPressed() ? "co_bg_tabbar_list_p.9.png" : "co_bg_tabbar_list_n.9.png").draw(c, 0, 0, w, hh);
             if (r == null) return;
             if (style == 0) {
-                if (r.icon != null) { Pic.Pic9 ic = Pic.get(getContext(), r.icon); c.drawBitmap(ic.bm, 32, (hh - ic.h()) / 2f, null); }
+                if (r.icon != null) { Pic.Pic9 ic = Pic.ink(getContext(), r.icon); c.drawBitmap(ic.bm, 32, (hh - ic.h()) / 2f, null); }
                 text(c, r.name.replace("\u0001", ""), pn, 112, hh / 2f, 868);
                 text(c, r.right, pr, 1148, hh / 2f, 156);
             } else {
@@ -323,7 +324,7 @@ public final class MainActivity extends Activity {
     // ---- dial ----
 
     private final class DialPane extends FrameLayout {
-        private final Paint pg = tp(38, false, Palette.SUBTEXT), pi = tp(38, false, 0xFFD1D1D1), ph = tp(28, false, Palette.SUBTEXT);
+        private final Paint pg = tp(38, false, Palette.SUBTEXT), pi = tp(38, false, Palette.LIGHT ? Palette.TEXT : 0xFFD1D1D1), ph = tp(28, false, Palette.SUBTEXT);
         private final ListBox list;
         private int pressed = -1;
 
@@ -376,7 +377,7 @@ public final class MainActivity extends Activity {
                 if (num) {
                     Paint pn = tp(56, false, Palette.TEXT); pn.setTextAlign(Paint.Align.CENTER);
                     c.drawText(k, o[0] + w / 2f, o[1] + 10 + 44, pn);
-                    Paint pl = tp(20, false, 0x80C1C1C1); pl.setTextAlign(Paint.Align.CENTER);
+                    Paint pl = tp(20, false, Palette.LIGHT ? Palette.SUBTEXT : 0x80C1C1C1); pl.setTextAlign(Paint.Align.CENTER);
                     c.drawText(CHOSUNG[Integer.parseInt(k) == 0 ? 10 : Integer.parseInt(k) - 1], o[0] + w / 2f, o[1] + 68 + 17, pl);
                 } else if (k.equals("#")) {
                     Paint pn = tp(48, false, Palette.TEXT); pn.setTextAlign(Paint.Align.CENTER);
@@ -385,14 +386,14 @@ public final class MainActivity extends Activity {
                 } else {
                     String ic = k.equals("*") ? "bt_ic_star_n.png" : k.equals("setting") ? "key_ic_setting_n.png"
                             : k.equals("del") ? (dis ? "key_ic_del_d.png" : "key_ic_del_n.png") : (dis ? "bt_ic_call_d.png" : "bt_ic_call_n.png");
-                    Pic.Pic9 p = Pic.get(getContext(), ic);
+                    Pic.Pic9 p = ic.startsWith("bt_ic_call") ? Pic.get(getContext(), ic) : Pic.ink(getContext(), ic); // call: on the green key
                     c.drawBitmap(p.bm, o[0] + (w - p.w()) / 2f, o[1] + (hh - p.h()) / 2f, null);
                 }
             }
             // input line
             if (digits.length() == 0) text(c, "Enter phone number.", pg, 668 + 16, 77 / 2f, 0);
             else text(c, digits.toString(), pi, 668 + 16, 77 / 2f, 640);
-            Pic.get(getContext(), "co_bg_input_line_n.9.png").draw(c, 668, 77, 668 + 740, 79);
+            Pic.ink(getContext(), "co_bg_input_line_n.9.png").draw(c, 668, 77, 668 + 740, 79);
             if (digits.length() >= 2) {
                 Paint pc = tp(28, false, Palette.SUBTEXT); pc.setTextAlign(Paint.Align.RIGHT);
                 text(c, "(" + list.getAdapter().getCount() + ")", pc, 668 + 710 - 60, 77 / 2f, 0);

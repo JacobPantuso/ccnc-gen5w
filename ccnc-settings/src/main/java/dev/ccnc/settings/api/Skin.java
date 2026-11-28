@@ -13,8 +13,10 @@ import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import dev.ccnc.common.Art;
 import dev.ccnc.common.Fonts;
 import dev.ccnc.common.NinePatchArt;
+import dev.ccnc.common.Palette;
 
 /**
  * ccNC Setup look: colours/sizes from the recovered setup QML, art from the ccNC dump (assets/ccnc/ui).
@@ -24,11 +26,27 @@ public final class Skin {
     private Skin() {}
 
     public static final int LIST_W = 896;                 // every setup list/delegate: width 896
+    // ccNC's own (dark-theme) colours. Light themes use the fg()/sub()/head() ink below instead; TEXT itself stays
+    // for text on dark art (the gate cards, a selected segment) that is dark in every theme.
     public static final int TEXT = 0xFFD1D1D1;            // main text
     public static final int TEXT_D = 0x4DD1D1D1;          // main text, disabled
     public static final int SUB = 0x80DFEDFE;             // subText (isHMC)
     public static final int SUB_D = 0x26DFEDFE;           // subText disabled (isHMC)
     public static final int HEAD = 0xFF788CA1;            // sectionHeading (isHMC)
+    private static final int HEAD_LIGHT = 0xFF4E6378;     // sectionHeading on a light background (same hue, darker)
+
+    /** Main text on the page background: TEXT, or the light theme's ink. Read when a view is built. */
+    public static int fg() { return Palette.LIGHT ? Palette.TEXT : TEXT; }
+    /** Main text, disabled. */
+    public static int fgOff() { return Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x4D) : TEXT_D; }
+    /** subText. */
+    public static int sub() { return Palette.LIGHT ? Palette.SUBTEXT : SUB; }
+    /** subText, disabled. */
+    public static int subOff() { return Palette.LIGHT ? Palette.alpha(Palette.SUBTEXT, 0x4D) : SUB_D; }
+    /** sectionHeading text and bar. */
+    public static int head() { return Palette.LIGHT ? HEAD_LIGHT : HEAD; }
+    /** Thin lines (list separators) on the page background; only used in light themes (dark ones keep ccNC's art). */
+    public static int line() { return Palette.DIVIDER; }
 
     static final int EN = android.R.attr.state_enabled, PR = android.R.attr.state_pressed, SEL = android.R.attr.state_selected;
 
@@ -50,6 +68,12 @@ public final class Skin {
         return b == null ? null : new BitmapDrawable(c.getResources(), b);
     }
 
+    /** {@link #bitmap} for white line art on the page background: in light themes redrawn in the text ink. */
+    public static Drawable inked(Context c, String name) {
+        Bitmap b = Art.ink(bmp(c, name));
+        return b == null ? null : new BitmapDrawable(c.getResources(), b);
+    }
+
     private static void add(StateListDrawable s, int[] st, Drawable d) { if (d != null) s.addState(st, d); }
 
     /** 9-patch background with ccNC's HNinePatchImageSelector states: d (disabled), p (pressed), s (selected, optional), n. */
@@ -68,6 +92,16 @@ public final class Skin {
         add(s, new int[]{-EN}, bitmap(c, base + "_d"));
         add(s, new int[]{PR}, bitmap(c, base + "_p"));
         add(s, new int[]{}, bitmap(c, base + "_n"));
+        return s;
+    }
+
+    /** {@link #states} of white line art (list arrow, +/- glyphs): in light themes each state in the text ink. */
+    public static Drawable statesInked(Context c, String base) {
+        if (!Palette.LIGHT) return states(c, base);
+        StateListDrawable s = new StateListDrawable();
+        add(s, new int[]{-EN}, inked(c, base + "_d"));
+        add(s, new int[]{PR}, inked(c, base + "_p"));
+        add(s, new int[]{}, inked(c, base + "_n"));
         return s;
     }
 
@@ -121,6 +155,7 @@ public final class Skin {
     /** A vertical list scroller with ccNC's HScrollBar handle (basic/scrollbar bco_scrollbar_bg_bar_v_n) at the right edge. */
     public static final class Scroll extends ScrollView {
         private final Drawable bar;
+        private android.graphics.Paint paint;
         public Scroll(Context c) {
             super(c);
             setVerticalScrollBarEnabled(false);
@@ -137,6 +172,12 @@ public final class Skin {
             int th = Math.max(48, h * h / ch);
             int top = getScrollY() + (int) ((long) (h - th) * getScrollY() / (ch - h));
             int w = getWidth();
+            if (Palette.LIGHT) { // the handle art is light grey: draw it in the theme's ink instead
+                if (paint == null) paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                paint.setColor(Palette.alpha(Palette.TEXT, 0x59));
+                cv.drawRoundRect(new android.graphics.RectF(w - 12, top, w - 7, top + th), 2.5f, 2.5f, paint);
+                return;
+            }
             bar.setBounds(w - 12, top, w - 7, top + th);
             bar.draw(cv);
         }

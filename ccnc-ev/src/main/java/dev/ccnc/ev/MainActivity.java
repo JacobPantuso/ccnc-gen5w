@@ -27,7 +27,7 @@ public final class MainActivity extends Activity implements EvView.Actions {
     private boolean demo;
     private final Runnable poll = new Runnable() {
         @Override public void run() {
-            view.setSnapshot(data.snapshot());
+            view.setSnapshot(demo ? EvData.demo(getIntent().getBooleanExtra("charging", false)) : data.snapshot());
             handler.postDelayed(this, 3000);
         }
     };
@@ -36,7 +36,8 @@ public final class MainActivity extends Activity implements EvView.Actions {
         super.onCreate(b);
         dev.ccnc.common.Themes.apply(this); // shared ccNC theme
         data = new EvData(this);
-        demo = false;
+        // Preview without a car (emulator, screenshots): am start ... --ez demo true [--ez charging true]. Never on a car with the HEV service.
+        demo = !data.available() && getIntent().getBooleanExtra("demo", false);
 
         FrameLayout root = new FrameLayout(this);
         root.addView(new Bg(this), new FrameLayout.LayoutParams(-1, -1));

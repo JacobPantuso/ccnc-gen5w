@@ -283,6 +283,10 @@ final class DatcSource implements Climate.Source {
             usm.pressWheel(); // a toggle: press 1, release 0 (on the worker thread, like every write)
         }
         if (!frontControl) return;
+        // Climate off (OFF, or the fan stepped down from 1): the stock OFF button's own request (NewClimateControl
+        // onClickBlowerOffButton: setFrontClimateControl(0x33, 1)) and nothing else. A fan level of 0 can't be sent
+        // as a level (the stock control only takes 2..9), and a power flag left on meant nothing was sent at all.
+        if (from.power && !to.power) { control(C_OFF_REQ, 1); return; }
         if (from.auto != to.auto) control(C_AUTO, to.auto ? 1 : 0);
         if (from.ac != to.ac) control(C_AC, to.ac ? 1 : 0);
         if (from.recirculated != to.recirculated) control(C_INTAKE, to.recirculated ? 1 : 0);
@@ -291,7 +295,6 @@ final class DatcSource implements Climate.Source {
         // The stock fan control only accepts 2..9 for its 8 steps (BlowerGraphView: "only able to set (2~9)").
         if (from.blower != to.blower && to.blower >= 1) control(C_BLOWER_LEVEL, to.blower + 1);
         if (from.ccMode != to.ccMode && to.ccMode > 0) control(C_BLOWER_MODE, to.ccMode);
-        if (!to.power && from.power) control(C_OFF_REQ, 1);
         int dr = Math.round((to.driverTemp - from.driverTemp) / 0.5f);
         for (int i = 0; i < Math.min(Math.abs(dr), 8); i++) control(C_TEMP_DR_UPDN, dr > 0 ? 1 : 2);
         int ps = Math.round((to.passengerTemp - from.passengerTemp) / 0.5f);

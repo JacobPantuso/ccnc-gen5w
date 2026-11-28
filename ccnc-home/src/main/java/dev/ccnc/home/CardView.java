@@ -194,8 +194,9 @@ final class CardView extends View {
         boolean dim = editMode && !lifted;
         int titleA = title.getAlpha(), subA = sub.getAlpha();
         if (dim) {
-            title.setAlpha(128);
-            sub.setAlpha(110);
+            // Dark ink fades faster on a light card than white does on a dark one: dim it less.
+            title.setAlpha(t.light ? 170 : 128);
+            sub.setAlpha(t.light ? 150 : 110);
         }
 
         float iconSize = Math.min(w * 0.44f, h * 0.26f);

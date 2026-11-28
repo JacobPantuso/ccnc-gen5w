@@ -124,7 +124,7 @@ final class ClimateView extends View {
 
     /** Draws at the bitmap's own size (the QML images have no explicit size), or scaled to {@code w}. */
     private void img(Canvas c, String name, float l, float t, float w, int alpha) {
-        Bitmap b = Art.climate(getContext(), name);
+        Bitmap b = art(name);
         if (b == null) return;
         float width = w > 0 ? w : b.getWidth();
         r.set(ox + l * k, oy + t * k, ox + (l + width) * k, oy + (t + width * b.getHeight() / b.getWidth()) * k);
@@ -134,10 +134,66 @@ final class ClimateView extends View {
     }
 
     private void imgChrome(Canvas c, String name, float l, float t, float size) {
-        Bitmap b = Art.chrome(getContext(), name);
+        Bitmap b = Art.ink(Art.chrome(getContext(), name));
         if (b == null) return;
         r.set(ox + l * k, oy + t * k, ox + (l + size) * k, oy + (t + size) * k);
         c.drawBitmap(b, null, r, bmp);
+    }
+
+    // ---- light themes ----
+
+    /**
+     * Climate art for the current theme. Dark themes: as it is. Light themes: the white line art redrawn in dark ink
+     * ({@link Art#ink}), and the filled seat renders (dark seat, light outline) turned light ({@link #lightSeat}). The
+     * fan pill (a faint white wash, fine on light) and the coloured temperature arrows stay as they are.
+     */
+    private Bitmap art(String name) {
+        Bitmap b = Art.climate(getContext(), name);
+        if (b == null || !Palette.LIGHT) return b;
+        if (name.equals("clm_bg_pop_fan") || name.equals("clm_bg_set_polygon")) return b;
+        if (name.equals("cli_bg_seat") || name.startsWith("set_bg_")) return lightSeat(b);
+        return Art.ink(b);
+    }
+
+    private static final java.util.HashMap<Bitmap, Bitmap> lightSeats = new java.util.HashMap<Bitmap, Bitmap>();
+
+    /** A seat render with its grey pixels' brightness inverted (dark fill -> light, light outline -> dark); heat/vent glow kept. */
+    private static Bitmap lightSeat(Bitmap b) {
+        Bitmap done = lightSeats.get(b);
+        if (done != null) return done;
+        int w = b.getWidth(), h = b.getHeight();
+        int[] px = new int[w * h];
+        b.getPixels(px, 0, w, 0, 0, w, h);
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i], a = p >>> 24;
+            if (a == 0) continue;
+            int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, bl = p & 0xFF;
+            int max = Math.max(r, Math.max(g, bl)), min = Math.min(r, Math.min(g, bl));
+            if (max - min > 40) continue;   // the coloured glow: keep
+            // 255 - v, pulled into a soft 0x30..0xF2 range so the light seat isn't paper-white and its lines aren't black
+            int nr = 0x30 + (255 - r) * (0xF2 - 0x30) / 255, ng = 0x30 + (255 - g) * (0xF2 - 0x30) / 255, nb = 0x34 + (255 - bl) * (0xF6 - 0x34) / 255;
+            px[i] = (a << 24) | (nr << 16) | (ng << 8) | nb;
+        }
+        done = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+        lightSeats.put(b, done);
+        return done;
+    }
+
+    /** Off gauges and level bars: a faint white on dark, a faint ink on light. */
+    private static int gaugeOff() { return Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x30) : GAUGE_OFF; }
+
+    /**
+     * ccNC seat button background (set_btn_bg_seat_n / _s / _p, a dark tile). Light themes: the same shape drawn as a
+     * faint ink tile with a border, so it sits on the light popup panel.
+     */
+    private void tileBg(Canvas c, String name, float x, float y, float w) {
+        if (!Palette.LIGHT) { img(c, name, x, y, w, 255); return; }
+        RectF t = box(x, y, w, w * 146f / 280f);
+        fill.setColor(Palette.alpha(Palette.TEXT, name.endsWith("_p") ? 0x24 : name.endsWith("_s") ? 0x14 : 0x0A));
+        c.drawRoundRect(t, 22f * k, 22f * k, fill);
+        line.setColor(Palette.alpha(Palette.TEXT, 0x1E));
+        line.setStrokeWidth(Math.max(1f, 2f * k));
+        c.drawRoundRect(t, 22f * k, 22f * k, line);
     }
 
     private void label(Canvas c, String t, float cx, float cy, float size, int color, int face) {
@@ -237,7 +293,7 @@ final class ClimateView extends View {
             label(c, level, l + 89f + 134f, t + 44f, off ? 40f : 60f, Palette.TEXT, Fonts.REGULAR);
         }
         hit(grow(box(l, t, 89f, 89f), 22f), true, new Runnable() { @Override public void run() {
-            s.auto = false; s.power = true; s.blower = Math.max(0, s.blower - 1); } });
+            s.auto = false; s.blower = Math.max(0, s.blower - 1); s.power = s.blower > 0; } });   // down from 1 = climate off
         hit(grow(box(l + 357f, t, 89f, 89f), 22f), true, new Runnable() { @Override public void run() {
             s.auto = false; s.power = true; s.blower = Math.min(eq.fanMax, s.blower + 1); } });
     }
@@ -352,12 +408,12 @@ final class ClimateView extends View {
      */
     private void seatPopup(Canvas c) {
         hits.clear();
-        fill.setColor(0xD9000000);
+        fill.setColor(Palette.LIGHT ? 0x80000000 : 0xD9000000);
         c.drawRect(0, 0, getWidth(), getHeight(), fill);
         hit(new RectF(0, 0, getWidth(), getHeight()), false, new Runnable() { @Override public void run() { closeSeats(); } });
 
         RectF panel = box(70f, 66f, 1780f, 548f);
-        fill.setColor(0xF5121A23);
+        fill.setColor(Palette.LIGHT ? 0xF7F2F5F8 : 0xF5121A23);
         c.drawRoundRect(panel, 32f * k, 32f * k, fill);
         line.setColor(Palette.BORDER);
         line.setStrokeWidth(Math.max(1f, 2f * k));
@@ -442,7 +498,7 @@ final class ClimateView extends View {
     private void seatTile(Canvas c, float x, float y, float w, float h, final int seat, final boolean heat, String caption) {
         int lv = level(seat, heat);
         RectF b = box(x, y, w, h);
-        img(c, pressed(b) ? "set_btn_bg_seat_p" : lv > 0 ? "set_btn_bg_seat_s" : "set_btn_bg_seat_n", x, y, w, 255);
+        tileBg(c, pressed(b) ? "set_btn_bg_seat_p" : lv > 0 ? "set_btn_bg_seat_s" : "set_btn_bg_seat_n", x, y, w);
         if (lv > 0) { // lit edge in the level colour
             line.setColor((heat ? HEAT : VENT) & 0x99FFFFFF);
             line.setStrokeWidth(Math.max(1f, 2f * k));
@@ -468,7 +524,7 @@ final class ClimateView extends View {
     private void wheelTile(Canvas c, float x, float y, float w, float h) {
         RectF b = box(x, y, w, w * 146f / 280f);
         boolean on = s.wheelHeat;
-        img(c, pressed(b) ? "set_btn_bg_seat_p" : on ? "set_btn_bg_seat_s" : "set_btn_bg_seat_n", x, y, w, 255);
+        tileBg(c, pressed(b) ? "set_btn_bg_seat_p" : on ? "set_btn_bg_seat_s" : "set_btn_bg_seat_n", x, y, w);
         float bh = w * 146f / 280f;
         if (on) {
             line.setColor(HEAT & 0x99FFFFFF);
@@ -478,7 +534,7 @@ final class ClimateView extends View {
         float is = 64f * Math.min(1f, w / 220f);
         img(c, on ? "clm_ic_toggle_01_s" : "clm_ic_toggle_01", x + (w - is) / 2f, y + bh * 0.16f, is, 255);
         r.set(ox + (x + w / 2f - 30f) * k, oy + (y + bh * 0.78f) * k, ox + (x + w / 2f + 30f) * k, oy + (y + bh * 0.78f + 6f) * k);
-        fill.setColor(on ? HEAT : GAUGE_OFF);
+        fill.setColor(on ? HEAT : gaugeOff());
         c.drawRoundRect(r, 3f * k, 3f * k, fill);
         hit(b, true, new Runnable() { @Override public void run() { s.wheelHeat = !s.wheelHeat; } });
     }
@@ -488,7 +544,7 @@ final class ClimateView extends View {
         float bw = 34f, gap = 8f, l = cx - (n * bw + (n - 1) * gap) / 2f;
         for (int i = 0; i < n; i++) {
             r.set(ox + (l + i * (bw + gap)) * k, oy + y * k, ox + (l + i * (bw + gap) + bw) * k, oy + (y + 6f) * k);
-            fill.setColor(i < level ? color : GAUGE_OFF);
+            fill.setColor(i < level ? color : gaugeOff());
             c.drawRoundRect(r, 3f * k, 3f * k, fill);
         }
     }
@@ -532,7 +588,7 @@ final class ClimateView extends View {
         float ofx = slot(i++, n, 554f, 220f);
         RectF offBox = box(ofx, 637f, 220f, 86f);
         label(c, "OFF", ofx + 110f, 620f + 35f + 23.5f, 30f, Palette.TEXT, Fonts.REGULAR);
-        hit(offBox, true, new Runnable() { @Override public void run() { s.auto = false; s.blower = 0; } });
+        hit(offBox, true, new Runnable() { @Override public void run() { s.auto = false; s.blower = 0; s.power = false; } });
 
         // Seats: opens the seat popup (rear seats and wheel included).
         if (seatPop) {
@@ -580,6 +636,11 @@ final class ClimateView extends View {
             ind.put(n, b);
         }
         r.set(ox + l * k, oy + t * k, ox + (l + w) * k, oy + (t + 5f) * k);
+        if (Palette.LIGHT && !on) { // the off art is a dark grey bar: reads as "on" against a light background
+            fill.setColor(gaugeOff());
+            c.drawRect(r, fill);
+            return;
+        }
         c.drawBitmap(b, null, r, bmp);
     }
 
@@ -594,18 +655,20 @@ final class ClimateView extends View {
     /** The air-flow mode popup over a dimmed screen, pointing at the preview. */
     private void popup(Canvas c, int mode) {
         hits.clear(); // the dim layer takes every touch
-        fill.setColor(0xCC000000);
+        fill.setColor(Palette.LIGHT ? 0x66000000 : 0xCC000000);
         c.drawRect(0, 0, getWidth(), getHeight(), fill);
         hit(new RectF(0, 0, getWidth(), getHeight()), false, new Runnable() { @Override public void run() { popup = false; } });
 
         float w = POPUP_MODES.length * 186f, l = 495f, t = 528f;
         RectF panel = box(l, t, w, 92f);
-        fill.setColor(0xFF161F29);
+        fill.setColor(Palette.LIGHT ? 0xFFF2F5F8 : 0xFF161F29);
         c.drawRoundRect(panel, 24f * k, 24f * k, fill);
         line.setColor(Palette.BORDER);
         line.setStrokeWidth(Math.max(1f, 2f * k));
         c.drawRoundRect(panel, 24f * k, 24f * k, line);
-        img(c, "clm_bg_set_polygon", flowCx - 26f, 618f, 19f, 255);   // x1221 in ccNC's own layout
+        if (Palette.LIGHT) bmp.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFFF2F5F8, android.graphics.PorterDuff.Mode.SRC_IN));
+        img(c, "clm_bg_set_polygon", flowCx - 26f, 618f, 19f, 255);   // x1221 in ccNC's own layout; light: in the panel colour
+        bmp.setColorFilter(null);
         for (int i = 0; i < POPUP_MODES.length; i++) {
             final int m = POPUP_MODES[i];
             boolean on = m == mode;

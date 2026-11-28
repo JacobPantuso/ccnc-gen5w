@@ -27,8 +27,10 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import dev.ccnc.common.Art;
 import dev.ccnc.common.Bg;
 import dev.ccnc.common.Fonts;
+import dev.ccnc.common.Palette;
 
 /**
  * ccNC Media: media home (now-playing card + one thumbnail per source) and the now-playing
@@ -185,6 +187,15 @@ public final class MainActivity extends Activity implements Media.Source.Listene
 
     private static int Color_a(int c) { return (c >>> 24) & 0xFF; }
 
+    /** Colour for text/marks on the page background: the dark-theme colour, or ccNC's ink in light themes. */
+    private static int ink(int dark, int light) { return Palette.LIGHT ? light : dark; }
+
+    /** White line art drawn on the page background: redrawn in dark ink in light themes. */
+    private Bitmap inkAsset(String n) {
+        Bitmap b = asset(n);
+        return b == null ? null : Art.ink(b);
+    }
+
     /** Art (or default) cropped to square dst, dimmed, corner-masked, stroked, with the source icon over it. */
     private void thumb(Canvas cv, float x, float y, float sz, Bitmap art, String icon, int cornerC) {
         Bitmap art0 = art != null ? art : asset("me_bg_default_01.png");
@@ -244,10 +255,10 @@ public final class MainActivity extends Activity implements Media.Source.Listene
                 Media.State k = known.get(s[0]);
                 hit[i + 1] = new RectF(x, top, x + 272, top + 272 + 150);
                 thumb(cv, x, top, 272, k == null ? null : k.art, s[3], 30);
-                text(cv, s[0], x + 11, top + 272 + 32 + 30, 250, 30, Fonts.SEMIBOLD, 0xFFFFFFFF);
+                text(cv, s[0], x + 11, top + 272 + 32 + 30, 250, 30, Fonts.SEMIBOLD, ink(0xFFFFFFFF, Palette.TEXT));
                 if (k != null && has(k.title)) {
-                    text(cv, k.title, x + 11, top + 272 + 32 + 38 + 26, 250, 28, Fonts.REGULAR, 0x80DFEDFE);
-                    text(cv, k.artist, x + 11, top + 272 + 32 + 38 + 34 + 8 + 26, 250, 28, Fonts.REGULAR, 0x80DFEDFE);
+                    text(cv, k.title, x + 11, top + 272 + 32 + 38 + 26, 250, 28, Fonts.REGULAR, ink(0x80DFEDFE, Palette.SUBTEXT));
+                    text(cv, k.artist, x + 11, top + 272 + 32 + 38 + 34 + 8 + 26, 250, 28, Fonts.REGULAR, ink(0x80DFEDFE, Palette.SUBTEXT));
                 }
                 if (down == i + 1) { Paint d = new Paint(); d.setColor(0x26FFFFFF); cv.drawRoundRect(new RectF(x, top, x + 272, top + 272), 30, 30, d); }
                 x += 272 + 40;
@@ -279,7 +290,7 @@ public final class MainActivity extends Activity implements Media.Source.Listene
 
         @Override protected void onDraw(Canvas cv) {
             int W = getWidth(), H = getHeight();
-            Bitmap ar = asset("me_ic_arrow_down_n.png");
+            Bitmap ar = inkAsset("me_ic_arrow_down_n.png");
             back.set(20, 20, 140, 120);
             if (ar != null) cv.drawBitmap(ar, 40, 28, p);
             boolean valid = now.valid && has(now.title);
@@ -300,24 +311,24 @@ public final class MainActivity extends Activity implements Media.Source.Listene
             // song info
             String[] cs = cur();
             String t = valid ? now.title : (cs == null ? null : cs[0]);
-            text(cv, t, 104, 190, 1180, 50, Fonts.REGULAR, 0xFFFFFFFF);
+            text(cv, t, 104, 190, 1180, 50, Fonts.REGULAR, ink(0xFFFFFFFF, Palette.TEXT));
             if (valid) {
-                text(cv, now.artist, 104, 250, 1180, 32, Fonts.REGULAR, 0xFFFFFFFF);
-                text(cv, now.album, 104, 296, 1180, 32, Fonts.REGULAR, 0x80DFEDFE);
+                text(cv, now.artist, 104, 250, 1180, 32, Fonts.REGULAR, ink(0xFFFFFFFF, Palette.TEXT));
+                text(cv, now.album, 104, 296, 1180, 32, Fonts.REGULAR, ink(0x80DFEDFE, Palette.SUBTEXT));
             }
             // progress + times (shown only when a duration is known)
             float py = H - 40 - 28 - 20;
             if (valid && now.durationMs > 0) {
                 Paint b = new Paint(Paint.ANTI_ALIAS_FLAG);
-                b.setColor(0x33FFFFFF);
+                b.setColor(ink(0x33FFFFFF, Palette.alpha(Palette.TEXT, 0x33)));
                 cv.drawRect(104, py, 104 + 1119, py + 4, b);
-                b.setColor(0xFFFFFFFF);
+                b.setColor(ink(0xFFFFFFFF, Palette.TEXT));
                 float f = Math.min(1f, (float) now.positionMs / now.durationMs);
                 cv.drawRect(104, py, 104 + 1119 * f, py + 4, b);
-                text(cv, mmss(now.positionMs), 104, py + 48, 200, 28, Fonts.REGULAR, 0x80FFFFFF);
+                text(cv, mmss(now.positionMs), 104, py + 48, 200, 28, Fonts.REGULAR, ink(0x80FFFFFF, Palette.SUBTEXT));
                 p.setTextSize(28);
                 String d = mmss(now.durationMs);
-                text(cv, d, 104 + 1119 - p.measureText(d), py + 48, 200, 28, Fonts.REGULAR, 0x80FFFFFF);
+                text(cv, d, 104 + 1119 - p.measureText(d), py + 48, 200, 28, Fonts.REGULAR, ink(0x80FFFFFF, Palette.SUBTEXT));
             }
             // transport
             float cy = py - 150, cx0 = 104 + 1119 / 2f;
@@ -330,7 +341,7 @@ public final class MainActivity extends Activity implements Media.Source.Listene
         }
 
         private void btn(Canvas cv, RectF r, String n, boolean pressed) {
-            Bitmap b = asset("me_btn_" + n + (pressed ? "_p.png" : "_n.png"));
+            Bitmap b = inkAsset("me_btn_" + n + (pressed ? "_p.png" : "_n.png"));
             if (b != null) cv.drawBitmap(b, null, new RectF(r.centerX() - 32, r.centerY() - 32, r.centerX() + 32, r.centerY() + 32), p);
         }
 

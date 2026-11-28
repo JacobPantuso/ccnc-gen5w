@@ -74,6 +74,12 @@ public final class DevMenu {
 
     private static final int GOOD = 0xFF4CD08A, BAD = 0xFFE5484D, WARN = 0xFFF2C94C;
 
+    /** A status colour used as text: deeper shades on light themes (the bright ones are made for dark panels). */
+    static int statusText(int c) {
+        if (!Palette.LIGHT) return c;
+        return c == GOOD ? 0xFF1C8A4E : c == WARN ? 0xFF9A6C00 : c == BAD ? 0xFFC62F35 : c;
+    }
+
     // ---- 7 taps on the clock ----
 
     private static int taps;
@@ -109,7 +115,7 @@ public final class DevMenu {
             this.a = a;
             dp = a.getResources().getDisplayMetrics().density;
             requestWindowFeature(Window.FEATURE_NO_TITLE);
-            getWindow().setBackgroundDrawable(new ColorDrawable(0xD9000000));
+            getWindow().setBackgroundDrawable(new ColorDrawable(Palette.LIGHT ? 0x80101820 : 0xD9000000));
 
             FrameLayout root = new FrameLayout(a);
             root.setSoundEffectsEnabled(false);
@@ -120,7 +126,7 @@ public final class DevMenu {
             panel.setOrientation(LinearLayout.VERTICAL);
             panel.setClickable(true); // taps inside don't close it
             GradientDrawable bg = new GradientDrawable();
-            bg.setColor(0xF5121A23);
+            bg.setColor(Palette.LIGHT ? 0xF7F5F8FA : 0xF5121A23);
             bg.setCornerRadius(24 * dp);
             bg.setStroke(Math.max(1, (int) dp), Palette.BORDER);
             panel.setBackgroundDrawable(bg);
@@ -321,7 +327,7 @@ public final class DevMenu {
                 String mounts = readAll("/proc/mounts");
                 for (int i = 0; i < PATCHES.length; i++) { Object[] r = patchState(i, mounts); res[i] = (String) r[0]; col[i] = (Integer) r[1]; }
             } }, new Runnable() { @Override public void run() {
-                for (int i = 0; i < PATCHES.length; i++) { pv[i].setText(res[i]); if (col[i] != 0) pv[i].setTextColor(col[i]); }
+                for (int i = 0; i < PATCHES.length; i++) { pv[i].setText(res[i]); if (col[i] != 0) pv[i].setTextColor(statusText(col[i])); }
             } });
         }
 
@@ -499,7 +505,7 @@ public final class DevMenu {
         void confirmReboot() {
             final Dialog d = new Dialog(a, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen);
             d.requestWindowFeature(Window.FEATURE_NO_TITLE);
-            d.getWindow().setBackgroundDrawable(new ColorDrawable(0x99000000));
+            d.getWindow().setBackgroundDrawable(new ColorDrawable(Popup.scrimColor()));
             FrameLayout root = new FrameLayout(a);
             root.setSoundEffectsEnabled(false);
             final long shownAt = SystemClock.uptimeMillis();
@@ -508,7 +514,7 @@ public final class DevMenu {
             box.setOrientation(LinearLayout.VERTICAL);
             box.setClickable(true);
             GradientDrawable bg = new GradientDrawable();
-            bg.setColor(0xFA17212C);
+            bg.setColor(Popup.panelColor());
             bg.setCornerRadius(24 * dp);
             bg.setStroke(Math.max(1, (int) dp), Palette.BORDER);
             box.setBackgroundDrawable(bg);
@@ -519,9 +525,10 @@ public final class DevMenu {
             box.addView(body);
             LinearLayout btns = new LinearLayout(a);
             btns.setGravity(Gravity.RIGHT);
-            TextView cancel = pill("Cancel", 0x26FFFFFF);
+            TextView cancel = pill("Cancel", Popup.softFill());
             cancel.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Chrome.beep(a); d.dismiss(); } });
             TextView ok = pill("Reboot", BAD);
+            ok.setTextColor(0xFFFFFFFF); // white on the red button in every theme
             ok.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Chrome.beep(a); d.dismiss(); reboot(); } });
             LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(px(160), px(56));
             btns.addView(cancel, bl);

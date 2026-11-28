@@ -34,8 +34,10 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import dev.ccnc.common.Art;
 import dev.ccnc.common.Bg;
 import dev.ccnc.common.Fonts;
+import dev.ccnc.common.Palette;
 
 /**
  * ccNC Voice Memo (VOICEMEMO.Main / VOICEMEMO.Delete). Layout in raw px from the recovered QML.
@@ -45,6 +47,12 @@ public final class MainActivity extends Activity {
     private static final String TAG = "ccncMemo";
     private static final String STOCK_DIR = "/securedata/com.daudio.app.voicememo/voicememo";
     private static final int COL1 = 0xFFD1D1D1, COL2 = 0x80DFEDFE;
+
+    /** Primary / secondary text: the stock light greys on dark themes, the theme's ink on light ones. */
+    private static int c1() { return Palette.LIGHT ? Palette.TEXT : COL1; }
+    private static int c2() { return Palette.LIGHT ? Palette.SUBTEXT : COL2; }
+    /** Faint white wash (button fills, dividers, progress track) on dark themes; faint ink on light ones. */
+    private static int wash() { return Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x22) : 0x33FFFFFF; }
 
     private File dir;
     private MediaRecorder recorder;
@@ -220,13 +228,13 @@ public final class MainActivity extends Activity {
         boolean rec = recorder != null, pl = playing != null && player != null;
         // control area x=44 w=428 h=520
         if (pl) {
-            put(txt(playing.f.getName(), 32, COL1, Fonts.SEMIBOLD, Gravity.CENTER), 44 + 16, 16, 428 - 32, 80);
-            put(txt(date(playing.f), 28, COL2, Fonts.REGULAR, Gravity.CENTER), 44 + 16, 16 + 80 + 12, 428 - 32, 36);
+            put(txt(playing.f.getName(), 32, c1(), Fonts.SEMIBOLD, Gravity.CENTER), 44 + 16, 16, 428 - 32, 80);
+            put(txt(date(playing.f), 28, c2(), Fonts.REGULAR, Gravity.CENTER), 44 + 16, 16 + 80 + 12, 428 - 32, 36);
             int y = 16 + 80 + 12 + 36 + 82;
             int cur = player.getCurrentPosition(), tot = Math.max(1, player.getDuration());
             put(new Progress(this, cur / (float) tot), 44, y, 428, 32);
-            put(txt(mmss(cur), 28, COL1, Fonts.REGULAR, Gravity.CENTER_VERTICAL | Gravity.LEFT), 44 + 16, y + 32, 116, 36);
-            put(txt(mmss(tot), 28, COL2, Fonts.REGULAR, Gravity.CENTER_VERTICAL | Gravity.RIGHT), 44 + 428 - 16 - 116, y + 32, 116, 36);
+            put(txt(mmss(cur), 28, c1(), Fonts.REGULAR, Gravity.CENTER_VERTICAL | Gravity.LEFT), 44 + 16, y + 32, 116, 36);
+            put(txt(mmss(tot), 28, c2(), Fonts.REGULAR, Gravity.CENTER_VERTICAL | Gravity.RIGHT), 44 + 428 - 16 - 116, y + 32, 116, 36);
             int by = y + 68 + 29, bw = (428 - 40 - 28) / 3;
             put(icon("voice_ic_pre_n", new Runnable() { public void run() { step(-1); } }), 44 + 20, by, bw, 74);
             put(icon(player.isPlaying() ? "voice_ic_pause_n" : "voice_ic_play_n", new Runnable() { public void run() {
@@ -234,11 +242,11 @@ public final class MainActivity extends Activity {
             put(icon("voice_ic_forward_n", new Runnable() { public void run() { step(1); } }), 44 + 20 + 2 * (bw + 14), by, bw, 74);
         } else if (rec) {
             put(new Wave(this, amp), 44 + 18, 0, 428 - 36, 160);
-            put(txt(mmss(System.currentTimeMillis() - startedAt), 38, COL1, Fonts.SEMIBOLD, Gravity.CENTER), 44 + 18, 160 + 19, 428 - 36, 48);
+            put(txt(mmss(System.currentTimeMillis() - startedAt), 38, c1(), Fonts.SEMIBOLD, Gravity.CENTER), 44 + 18, 160 + 19, 428 - 36, 48);
         } else {
             put(img("voice_ic_voicememo", 140, 140), 44 + 144, 20, 140, 140);
             int mb = freeMb();
-            put(txt(qs("Available") + " ‎" + (mb < 0 ? "--" : mb) + " MB", 32, COL1, Fonts.REGULAR, Gravity.CENTER), 44 + 20, 20 + 140 + 28, 388, 202);
+            put(txt(qs("Available") + " ‎" + (mb < 0 ? "--" : mb) + " MB", 32, c1(), Fonts.REGULAR, Gravity.CENTER), 44 + 20, 20 + 140 + 28, 388, 202);
         }
         int rw = (428 - 40 - 20) / 2, ry = 520 - 28 - 74;
         put(icon(rec ? "voice_ic_pause_d" : "voice_ic_start_n", new Runnable() { public void run() { toggleRecord(); } }), 44 + 20, ry, rw, 74);
@@ -246,15 +254,15 @@ public final class MainActivity extends Activity {
         // list x = 44+428+40
         if (items.isEmpty()) {
             put(txt(qs(rec ? "Voice memos are saved in this system until deleted. Please go to the menu to delete." : "There are no saved Voice Memos."),
-                    32, COL1, Fonts.REGULAR, Gravity.CENTER), 512, 0, 1920 - 512 - 512, 720 - top - 130);
+                    32, c1(), Fonts.REGULAR, Gravity.CENTER), 512, 0, 1920 - 512 - 512, 720 - top - 130);
         } else {
             hscroll(false);
         }
     }
 
     private void buildDelete() {
-        put(txt("Edit", 32, COL1, Fonts.SEMIBOLD, Gravity.BOTTOM), 44 + 50, 0, 300, 84);
-        put(txt("(" + marked.size() + ")", 32, COL2, Fonts.REGULAR, Gravity.BOTTOM), 44 + 50 + 110, 0, 200, 84);
+        put(txt("Edit", 32, c1(), Fonts.SEMIBOLD, Gravity.BOTTOM), 44 + 50, 0, 300, 84);
+        put(txt("(" + marked.size() + ")", 32, c2(), Fonts.REGULAR, Gravity.BOTTOM), 44 + 50 + 110, 0, 200, 84);
         put(line(), 44 + 50, 86, 422, 2);
         put(button("Delete", marked.isEmpty() ? 0x55 : 0xFF, new Runnable() { public void run() {
             for (Item i : marked) if (i.own) { if (i == playing) stopPlayback(); i.f.delete(); }
@@ -310,18 +318,18 @@ public final class MainActivity extends Activity {
             nine(c, bitmap(bg + ".9.png"), 0, 0, 292, 512);
             nine(c, bitmap("co_bg_list_h_header.9.png"), 0, 0, 292, 240);
             if (dur == Long.MIN_VALUE) dur = duration(it);
-            p.setColor(COL2); p.setTextSize(28);
+            p.setColor(c2()); p.setTextSize(28);
             c.drawText(dur < 0 ? "--" : mmss(dur), 146, 10 + 28, p);
-            Bitmap w = bitmap("voice_ic_wave_default.png");
+            Bitmap w = Art.ink(bitmap("voice_ic_wave_default.png"));
             if (w != null) c.drawBitmap(w, null, new Rect(2, 50, 290, 210), null);
-            p.setColor(COL1);
+            p.setColor(c1());
             String t = it.f.getName();
             while (t.length() > 3 && p.measureText(t) > 260) t = t.substring(0, t.length() - 1);
             c.drawText(t, 146, 240 + 18 + 28, p);
-            p.setColor(COL2);
+            p.setColor(c2());
             c.drawText(date(it.f), 146, 240 + 18 + 40 + 10 + 28, p);
             if (!del) {
-                Bitmap d = bitmap(it.own ? "voice_ic_deleted_n.png" : "voice_ic_deleted_d.png");
+                Bitmap d = Art.ink(bitmap(it.own ? "voice_ic_deleted_n.png" : "voice_ic_deleted_d.png"));
                 if (d != null) c.drawBitmap(d, 146 - d.getWidth() / 2f, 512 - 16 - 74 + (74 - d.getHeight()) / 2f, null);
             }
         }
@@ -332,8 +340,8 @@ public final class MainActivity extends Activity {
         Progress(Context c, float f) { super(c); this.f = f; }
         @Override protected void onDraw(Canvas c) {
             int h = getHeight(), w = getWidth();
-            p.setColor(0x33FFFFFF); c.drawRoundRect(new RectF(0, h / 2 - 3, w, h / 2 + 3), 3, 3, p);
-            p.setColor(dev.ccnc.common.Palette.ACCENT); c.drawRoundRect(new RectF(0, h / 2 - 3, w * f, h / 2 + 3), 3, 3, p);
+            p.setColor(wash()); c.drawRoundRect(new RectF(0, h / 2 - 3, w, h / 2 + 3), 3, 3, p);
+            p.setColor(Palette.ACCENT); c.drawRoundRect(new RectF(0, h / 2 - 3, w * f, h / 2 + 3), 3, 3, p);
         }
     }
 
@@ -379,7 +387,7 @@ public final class MainActivity extends Activity {
 
     private View img(String n, int w, int h) {
         android.widget.ImageView v = new android.widget.ImageView(this);
-        v.setImageBitmap(bitmap(n + ".png"));
+        v.setImageBitmap(Art.ink(bitmap(n + ".png")));
         v.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
         return v;
     }
@@ -391,14 +399,14 @@ public final class MainActivity extends Activity {
     }
 
     private View button(String t, int alpha, final Runnable r) {
-        TextView v = txt(t, 40, COL1, Fonts.REGULAR, Gravity.CENTER);
-        v.setBackgroundColor(0x33FFFFFF);
+        TextView v = txt(t, 40, c1(), Fonts.REGULAR, Gravity.CENTER);
+        v.setBackgroundColor(wash());
         v.setAlpha(alpha / 255f);
         if (alpha == 0xFF) { v.setClickable(true); v.setOnClickListener(new View.OnClickListener() { public void onClick(View x) { r.run(); } }); }
         return v;
     }
 
-    private View line() { View v = new View(this); v.setBackgroundColor(0x33FFFFFF); return v; }
+    private View line() { View v = new View(this); v.setBackgroundColor(wash()); return v; }
 
     private TextView txt(String t, float px, int color, int face, int grav) {
         TextView v = new TextView(this);

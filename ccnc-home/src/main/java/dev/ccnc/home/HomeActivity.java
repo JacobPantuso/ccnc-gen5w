@@ -76,6 +76,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
     private final Handler handler = new Handler();
     private static final android.view.animation.Interpolator EASE = new android.view.animation.DecelerateInterpolator(1.6f);
     private View editChrome;            // "Done" pill + hint, shown in edit mode
+    private TextView editHint, editDone, editWelcome, editReset; // restyled by styleEditChrome() on a theme change
     private FrameLayout.LayoutParams pagerLp;
 
     private final BroadcastReceiver clock = new BroadcastReceiver() {
@@ -163,7 +164,8 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         hint.setText("Drag to Rearrange");
         hint.setTextSize(14f);
         hint.setTypeface(regular);
-        hint.setTextColor(0xA6FFFFFF);
+        editHint = hint;
+        editDone = done;
 
         LinearLayout chrome = new LinearLayout(this);
         chrome.setOrientation(LinearLayout.HORIZONTAL);
@@ -197,6 +199,9 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
             }
         });
         final TextView welcomeBtn = outlinePill(welcomeEnabled() ? "Hide Welcome" : "Show Welcome");
+        editReset = resetBtn;
+        editWelcome = welcomeBtn;
+        styleEditChrome();
         welcomeBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 boolean on = !welcomeEnabled();
@@ -262,6 +267,12 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
             List<String[]> l = repo.stacks();
             String[] k = st.split("\\|");
             if (k.length == 2) { l.add(k); repo.saveStacks(l); reload(); }
+        }
+        String th = i == null ? null : i.getStringExtra("theme"); // preview: am start ... --es theme day (Home already running)
+        if (th != null) {
+            i.removeExtra("theme");
+            Theme.save(this, th);
+            refreshTheme();
         }
         if (i != null && i.getBooleanExtra("themes", false)) {
             i.removeExtra("themes");
@@ -1263,15 +1274,29 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         b.setText(text);
         b.setTextSize(15f);
         b.setTypeface(bold);
-        b.setTextColor(0xFFFFFFFF);
         b.setGravity(Gravity.CENTER);
         b.setPadding(px(20), px(10), px(20), px(10));
-        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
-        g.setCornerRadius(px(20));
-        g.setColor(0x33FFFFFF);
-        g.setStroke(Math.max(1, px(1)), 0x59FFFFFF);
-        b.setBackground(g);
         return b;
+    }
+
+    /** Edit-mode toolbar colours for the current theme: white on dark themes, dark ink on light ones. */
+    private void styleEditChrome() {
+        if (editHint == null) return;
+        boolean light = Theme.current.light;
+        editHint.setTextColor(light ? 0xA616212A : 0xA6FFFFFF);
+        for (TextView b : new TextView[]{editWelcome, editReset}) {
+            if (b == null) continue;
+            b.setTextColor(light ? 0xFF16212A : 0xFFFFFFFF);
+            android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+            g.setCornerRadius(px(20));
+            g.setColor(light ? 0xB3FFFFFF : 0x33FFFFFF);
+            g.setStroke(Math.max(1, px(1)), light ? 0x4D203040 : 0x59FFFFFF);
+            b.setBackground(g);
+        }
+        android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
+        pill.setCornerRadius(px(20));
+        pill.setColor(Theme.current.accent());
+        editDone.setBackground(pill);
     }
 
     // ---- stacks: two half-height cards sharing one slot ----
@@ -1345,6 +1370,7 @@ public class HomeActivity extends Activity implements CardView.Listener, Welcome
         Theme.current = t;
         root.setTag(t);
         getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(t.bg[0]));
+        styleEditChrome();
         invalidateAll(root);
     }
 

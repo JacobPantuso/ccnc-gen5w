@@ -276,13 +276,15 @@ final class ChromeViews {
                 float l = i * (chipW() + gap());
                 r.set(l, 0, l + chipW(), getHeight());
                 boolean cur = i == current, hov = i == hover;
-                fill.setColor(hov ? (t.accent() & 0x00FFFFFF) | 0x66000000 : cur ? (t.accent() & 0x00FFFFFF) | 0xCC000000 : 0x33FFFFFF);
+                // Light themes: white chips with dark ink and a dark hairline (white-on-white otherwise).
+                fill.setColor(hov ? (t.accent() & 0x00FFFFFF) | 0x66000000 : cur ? (t.accent() & 0x00FFFFFF) | 0xCC000000
+                        : t.light ? 0xB3FFFFFF : 0x33FFFFFF);
                 c.drawRoundRect(r, rad, rad, fill);
                 line.setStrokeWidth(Math.max(1f, hov ? 2.5f * dp : 1f * dp));
-                line.setColor(hov ? t.accent() : 0x55FFFFFF);
+                line.setColor(hov ? t.accent() : t.light ? 0x4D203040 : 0x55FFFFFF);
                 c.drawRoundRect(r, rad, rad, line);
                 num.setTextSize(17f * dp);
-                num.setColor(cur ? 0xFF10161C : 0xFFFFFFFF);
+                num.setColor(cur ? 0xFF10161C : t.light ? t.text : 0xFFFFFFFF);
                 c.drawText(String.valueOf(i + 1), r.centerX(), r.centerY() + 6f * dp, num);
             }
         }

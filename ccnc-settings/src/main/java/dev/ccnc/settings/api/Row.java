@@ -13,8 +13,8 @@ public final class Row {
 
     public Row enabled(boolean on) {
         setEnabled(view, on);
-        if (title != null) title.setTextColor(on ? Skin.TEXT : Skin.TEXT_D);
-        if (sub != null) sub.setTextColor(on ? Skin.SUB : Skin.SUB_D);
+        if (title != null) title.setTextColor(on ? Skin.fg() : Skin.fgOff());
+        if (sub != null) sub.setTextColor(on ? Skin.sub() : Skin.subOff());
         return this;
     }
 

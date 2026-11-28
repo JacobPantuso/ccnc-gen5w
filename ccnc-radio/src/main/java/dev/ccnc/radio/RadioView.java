@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import dev.ccnc.common.Art;
 import dev.ccnc.common.Fonts;
 import dev.ccnc.common.Palette;
 
@@ -36,7 +37,11 @@ final class RadioView extends View {
     }
 
     private static final float DW = 1920f, DH = 620f;
-    private static final int TEXT = 0xFFDFEDFE, SUB = 0x80DFEDFE, TICK = 0xFF555454, LABEL = 0xFF999999;
+    // Dark themes keep the ccNC NA colours; light themes (Day) take the shared palette's dark ink.
+    private static int text() { return Palette.LIGHT ? Palette.TEXT : 0xFFDFEDFE; }
+    private static int sub() { return Palette.LIGHT ? Palette.SUBTEXT : 0x80DFEDFE; }
+    private static int tick() { return Palette.LIGHT ? Palette.alpha(Palette.TEXT, 0x80) : 0xFF555454; }
+    private static int label() { return Palette.LIGHT ? Palette.SUBTEXT : 0xFF999999; }
     private static final float CX = 960f; // centre of the 896 tuner column (512..1408)
 
     private final Actions actions;
@@ -80,7 +85,7 @@ final class RadioView extends View {
     }
 
     private void draw(Canvas c, String name, float l, float t, float w, float h) {
-        Bitmap b = img(name);
+        Bitmap b = Art.ink(img(name)); // white line art -> dark ink in light themes (coloured pixels kept)
         if (b == null) return;
         c.drawBitmap(b, null, new RectF(X(l), X(t), X(l + w), X(t + h)), bmp);
     }
@@ -195,11 +200,11 @@ final class RadioView extends View {
                 invalidate(); } });
             fill.setColor(on ? Palette.ACCENT_DIM : pressed(h) ? Palette.PRESS : 0x00000000);
             c.drawRoundRect(h.box, X(16f), X(16f), fill);
-            txt(c, tabs[i], 60f, t + 62f, 36f, on ? TEXT : SUB, on ? Fonts.SEMIBOLD : Fonts.REGULAR, Paint.Align.LEFT, 400f);
+            txt(c, tabs[i], 60f, t + 62f, 36f, on ? text() : sub(), on ? Fonts.SEMIBOLD : Fonts.REGULAR, Paint.Align.LEFT, 400f);
         }
 
         if (s.error != null) {
-            txt(c, s.error, 1000f, 300f, 30f, SUB, Fonts.REGULAR, Paint.Align.CENTER, 1300f);
+            txt(c, s.error, 1000f, 300f, 30f, sub(), Fonts.REGULAR, Paint.Align.CENTER, 1300f);
             return;
         }
         if (favorites) { drawFavorites(c); return; }
@@ -217,14 +222,14 @@ final class RadioView extends View {
         int shown = dialDown && dragged ? Math.max(minU(), Math.min(maxU(), Math.round(ref - dialDx / 1.5f))) : ref;
         c.save();
         c.clipRect(dial);
-        fill.setColor(TICK);
+        fill.setColor(tick());
         int lo = Math.max(minU(), (int) Math.floor((ref - 310 - shift / 1.5f) / 10f) * 10);
         int hi = Math.min(maxU() + 10, ref + 310 - (int) (shift / 1.5f));
         for (int u = lo; u <= hi; u += 10) {
             float x = CX + (u - ref) * 1.5f + shift;
             boolean lng = u % 50 == 0;
             c.drawRect(X(x - 1f), X(dt), X(x + 1f), X(dt + (lng ? 30f : 15f)), fill);
-            if (u % 100 == 0) txt(c, isAm() ? String.valueOf(u) : String.format(Locale.US, "%.1f", u / 100f), x, dt + 41f + 26f, 32f, LABEL, Fonts.NUMERIC, Paint.Align.CENTER, 0);
+            if (u % 100 == 0) txt(c, isAm() ? String.valueOf(u) : String.format(Locale.US, "%.1f", u / 100f), x, dt + 41f + 26f, 32f, label(), Fonts.NUMERIC, Paint.Align.CENTER, 0);
         }
         c.restore();
         draw(c, "ra_ic_dialpin", CX - 8f, dt + 132f - 24f, 16f, 24f);
@@ -233,10 +238,10 @@ final class RadioView extends View {
         float ry = dt + 132f + 135f;
         String f = s.live ? (isAm() ? String.valueOf(shown) : String.format(Locale.US, "%.1f", shown / 100f)) : "--";
         if (s.live && cur <= 0) f = "--";
-        txt(c, f, CX, ry + 76f, 96f, TEXT, Fonts.NUMERIC, Paint.Align.CENTER, 420f);
+        txt(c, f, CX, ry + 76f, 96f, text(), Fonts.NUMERIC, Paint.Align.CENTER, 420f);
         text.setTextSize(X(96f));
         float fw = text.measureText(f) / k;
-        txt(c, isAm() ? "kHz" : "MHz", CX + fw / 2f + 20f, ry + 96f, 40f, SUB, Fonts.REGULAR, Paint.Align.LEFT, 0);
+        txt(c, isAm() ? "kHz" : "MHz", CX + fw / 2f + 20f, ry + 96f, 40f, sub(), Fonts.REGULAR, Paint.Align.LEFT, 0);
         draw(c, isPreset() ? "ra_ic_favorite_on" : "ra_ic_favorite_off", CX - fw / 2f - 50f - 60f, ry + 20f, 60f, 60f);
 
         Hit m = hit(530f, ry, 100f, 100f, new Runnable() { @Override public void run() { tuneStep(false); } });
@@ -249,9 +254,9 @@ final class RadioView extends View {
         float x = 1448f;
         boolean none = s.live && s.signal <= 0;
         draw(c, none ? "ra_ic_nosignal" : "ra_ic_signal", x, 40f, 60f, 60f);
-        if (none) txt(c, "No Signal", x + 76f, 84f, 32f, SUB, Fonts.REGULAR, Paint.Align.LEFT, 380f);
-        txt(c, s.station, x, 190f, 44f, TEXT, Fonts.SEMIBOLD, Paint.Align.LEFT, 440f);
-        txt(c, s.text, x, 240f, 28f, SUB, Fonts.REGULAR, Paint.Align.LEFT, 440f);
+        if (none) txt(c, "No Signal", x + 76f, 84f, 32f, sub(), Fonts.REGULAR, Paint.Align.LEFT, 380f);
+        txt(c, s.station, x, 190f, 44f, text(), Fonts.SEMIBOLD, Paint.Align.LEFT, 440f);
+        txt(c, s.text, x, 240f, 28f, sub(), Fonts.REGULAR, Paint.Align.LEFT, 440f);
         Hit a = hit(x, 330f, 100f, 100f, new Runnable() { @Override public void run() { actions.seek(false); } });
         Hit b = hit(x + 220f, 330f, 100f, 100f, new Runnable() { @Override public void run() { actions.seek(true); } });
         draw(c, pressed(a) ? "ra_ic_nowplaying_prev_01_p" : "ra_ic_nowplaying_prev_01_n", x + 10f, 340f, 80f, 80f);
@@ -269,10 +274,10 @@ final class RadioView extends View {
             Hit h = hit(540f, t, 1300f, 80f, new Runnable() { @Override public void run() { actions.preset(p); } });
             fill.setColor(cur ? Palette.ACCENT_DIM : pressed(h) ? Palette.PRESS : 0x00000000);
             c.drawRoundRect(h.box, X(12f), X(12f), fill);
-            txt(c, fmt(p.band, p.frequency) + (p.band == Radio.AM1 ? " kHz" : " MHz"), 580f, t + 54f, 36f, TEXT, Fonts.NUMERIC, Paint.Align.LEFT, 400f);
-            txt(c, p.name, 900f, t + 52f, 32f, SUB, Fonts.REGULAR, Paint.Align.LEFT, 700f);
+            txt(c, fmt(p.band, p.frequency) + (p.band == Radio.AM1 ? " kHz" : " MHz"), 580f, t + 54f, 36f, text(), Fonts.NUMERIC, Paint.Align.LEFT, 400f);
+            txt(c, p.name, 900f, t + 52f, 32f, sub(), Fonts.REGULAR, Paint.Align.LEFT, 700f);
             draw(c, "ra_ic_favorite_on", 1760f, t + 10f, 60f, 60f);
         }
-        if (n == 0) txt(c, "No Favorites Saved.", 1176f, 300f, 36f, SUB, Fonts.REGULAR, Paint.Align.CENTER, 1000f);
+        if (n == 0) txt(c, "No Favorites Saved.", 1176f, 300f, 36f, sub(), Fonts.REGULAR, Paint.Align.CENTER, 1000f);
     }
 }

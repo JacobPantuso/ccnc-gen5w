@@ -100,10 +100,10 @@ public final class MainActivity extends Activity implements Host {
         bar.addView(crumb, cl);
         if (dev.ccnc.settings.api.Demo.on()) {
             // A small "Demo" tag after the title / depth text, so emulator screenshots are never taken for car data.
-            TextView demo = Skin.text(this, "Demo", 22, Skin.HEAD, true, 0, 1);
+            TextView demo = Skin.text(this, "Demo", 22, Skin.head(), true, 0, 1);
             android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
             g.setCornerRadius(14);
-            g.setStroke(2, Skin.HEAD);
+            g.setStroke(2, Skin.head());
             demo.setBackground(g);
             demo.setPadding(14, 4, 14, 4);
             LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-2, -2);
@@ -242,6 +242,7 @@ public final class MainActivity extends Activity implements Host {
         grid.setBackground(Skin.bg(this, "co_bg_list_grid", false));
         grid.setDuplicateParentStateEnabled(true);
         c.addView(grid, new FrameLayout.LayoutParams(-1, -1));
+        // The cards stay ccNC's dark tiles (with their coloured icons) in every theme, so the name stays light.
         TextView t = Skin.text(this, e.label, 32, Skin.TEXT, true, 40, 4);
         if (lines(t, e.label, 232) > 3) t = Skin.text(this, e.label, 26, Skin.TEXT, true, 30, 4);
         FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(232, -2);
@@ -380,7 +381,7 @@ public final class MainActivity extends Activity implements Host {
         FrameLayout b = new FrameLayout(this);
         b.setBackground(Skin.bg(this, "co_bg_tabbar_list", true));
         b.setMinimumHeight(96);
-        TextView t = Skin.text(this, cat.tabs.get(i).title, 42, Skin.TEXT, false, 48, 3);
+        TextView t = Skin.text(this, cat.tabs.get(i).title, 42, Skin.fg(), false, 48, 3);
         FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL);
         tl.leftMargin = 50; tl.rightMargin = 12; tl.topMargin = 24; tl.bottomMargin = 24;
         b.addView(t, tl);
@@ -450,14 +451,14 @@ public final class MainActivity extends Activity implements Host {
     }
 
     private void crumbText(String s) {
-        TextView t = Skin.text(this, s, 32, Skin.TEXT, false, 0, 1);
+        TextView t = Skin.text(this, s, 32, Skin.fg(), false, 0, 1);
         t.setMaxWidth(560);
         crumb.addView(t, new LinearLayout.LayoutParams(-2, -2));
     }
 
     private void crumbArrow() {
         ImageView a = new ImageView(this);
-        a.setImageDrawable(Skin.bitmap(this, "co_ic_status_subdepth_arrow"));
+        a.setImageDrawable(Skin.inked(this, "co_ic_status_subdepth_arrow"));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(40, 40);
         p.leftMargin = 10; p.rightMargin = 10;
         crumb.addView(a, p);

@@ -85,7 +85,7 @@ public final class Chrome {
                 date.setColor(col); time.setColor(col); ampm.setColor(col); bt.setColor(col);
                 float w = getWidth(), h = getHeight(), base = h / 2f + 6 * dp;
                 if (isPressed()) { hi.setColor(Palette.PRESS); c.drawCircle(26 * dp, h / 2f, 20 * dp, hi); }
-                if (home != null) { r.set(8 * dp, h / 2f - 18 * dp, 44 * dp, h / 2f + 18 * dp); c.drawBitmap(home, null, r, p); }
+                if (home != null) { r.set(8 * dp, h / 2f - 18 * dp, 44 * dp, h / 2f + 18 * dp); c.drawBitmap(Art.ink(home), null, r, p); }
                 Date now = new Date();
                 Locale loc = Locale.getDefault();
                 c.drawText(new SimpleDateFormat("EEE, MMM", loc).format(now) + ". " + new SimpleDateFormat("d", loc).format(now), w / 2f, base, date);
@@ -236,7 +236,23 @@ public final class Chrome {
                     } catch (Throwable ignored) {}
                 }
             }
+            fetchArt();
             invalidate();
+        }
+
+        private String artTried;
+
+        /** No cover yet for this title: ask ccNC Home for the one it collected (sent before this screen opened). */
+        private void fetchArt() {
+            if (art != null || title.isEmpty() || title.equals(artTried)) return;
+            artTried = title;
+            final String act = action, t = title;
+            new Thread(new Runnable() { @Override public void run() {
+                final Bitmap b = NowPlayingArt.fetch(getContext(), act, t, 4);
+                if (b != null) post(new Runnable() { @Override public void run() {
+                    if (art == null && t.equals(title) && act.equals(action)) { art = b; invalidate(); }
+                } });
+            } }, "ccncArt").start();
         }
 
         private static String nz(String s) { return s == null ? "" : s; }
@@ -318,7 +334,7 @@ public final class Chrome {
             Bitmap[] ic = {back, home};
             for (int i = 0; i < 2; i++) {
                 if (down == i) { fill.setColor(Palette.PRESS); c.drawCircle(cx[i], 45f, 38f, fill); }
-                if (ic[i] != null) { r.set(cx[i] - 40f, 5f, cx[i] + 40f, 85f); c.drawBitmap(ic[i], null, r, bmp); }
+                if (ic[i] != null) { r.set(cx[i] - 40f, 5f, cx[i] + 40f, 85f); c.drawBitmap(Art.ink(ic[i]), null, r, bmp); }   // dark in light themes
             }
             if (nowPlaying) {
                 float l = npL(); // now-playing pill origin in ccNC pixels
@@ -339,7 +355,7 @@ public final class Chrome {
                     fill.setColor(0x2285BAFF);
                     c.drawRoundRect(r, RAD, RAD, fill);
                     Bitmap mi = Art.icon(getContext(), sourceIcon());
-                    if (mi != null) { r.set(l + 21f, 21f, l + 69f, 69f); c.drawBitmap(mi, null, r, bmp); }
+                    if (mi != null) { r.set(l + 21f, 21f, l + 69f, 69f); c.drawBitmap(Art.ink(mi), null, r, bmp); }
                 }
                 // Progress line along the top of the text area.
                 float tx = l + 90f, tw = PILL_R - 90f;
@@ -350,7 +366,7 @@ public final class Chrome {
                     r.set(l, 1f, l + PILL_R, getHeight() / k - 1f);
                     clip.addRoundRect(r, RAD, RAD, android.graphics.Path.Direction.CW);
                     c.clipPath(clip);
-                    bar.setColor(0x33FFFFFF);
+                    bar.setColor(Palette.alpha(Palette.TEXT, 0x33));
                     r.set(tx, 1f, l + PILL_R, 5f);
                     c.drawRect(r, bar);
                     bar.setColor(Palette.ACCENT);
@@ -442,7 +458,7 @@ public final class Chrome {
                 @Override protected void onDraw(Canvas c) {
                     float w = getWidth(), h = getHeight();
                     if (isPressed()) { hi.setColor(Palette.PRESS); c.drawCircle(w / 2, h / 2, Math.min(w, h) / 2 - 2, hi); }
-                    if (b != null) { r.set(0, 0, w, h); c.drawBitmap(b, null, r, p); }
+                    if (b != null) { r.set(0, 0, w, h); c.drawBitmap(Art.ink(b), null, r, p); }
                 }
                 @Override public void setPressed(boolean pressed) { super.setPressed(pressed); invalidate(); }
             };

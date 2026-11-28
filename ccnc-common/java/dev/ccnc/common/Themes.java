@@ -137,14 +137,14 @@ public final class Themes {
     public static boolean set(T t, int accentOverride) {
         int acc = accentOf(t, accentOverride);
         boolean same = Palette.WALLPAPER == null ? t.wallpaper == null : Palette.WALLPAPER.equals(t.wallpaper);
-        same &= Palette.ACCENT == acc && Palette.BG == t.bg && Palette.TEXT == t.text
+        same &= Palette.ACCENT == acc && Palette.BG == t.bg && Palette.TEXT == t.text && Palette.LIGHT == t.light
                 && (Palette.ICONS == null ? t.icons == null : Palette.ICONS.equals(t.icons));
         if (same) return false;
         Palette.BG = t.bg;
         Palette.GLOW1 = t.glow1; Palette.GLOW2 = t.glow2; Palette.SHADE = t.shade;
         Palette.CARD = t.card; Palette.CARD_HIGHLIGHT = t.card; Palette.RAIL = t.card & 0x80FFFFFF;
         Palette.DIVIDER = t.divider; Palette.BORDER = t.border; Palette.PRESS = t.press;
-        Palette.TEXT = t.text; Palette.SUBTEXT = t.subtext; Palette.HINT = t.hint;
+        Palette.TEXT = t.text; Palette.SUBTEXT = t.subtext; Palette.HINT = t.hint; Palette.LIGHT = t.light;
         Palette.ACCENT = acc; Palette.ACCENT_DIM = (acc & 0x00FFFFFF) | 0x66000000;
         Palette.WALLPAPER = t.wallpaper;
         Palette.ICONS = t.icons;

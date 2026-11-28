@@ -25,6 +25,8 @@ public final class Palette {
     public static int PRESS = 0x26FFFFFF;
 
     // Text.
+    /** The theme is a light one (Day): dark text, and white monochrome icons drawn dark (Art.ink). */
+    public static boolean LIGHT = false;
     public static int TEXT = 0xFFFFFFFF;
     public static int SUBTEXT = 0xFFA9B6C2;
     public static int HINT = 0xFF6E7B87;

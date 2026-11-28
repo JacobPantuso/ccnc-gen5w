@@ -89,6 +89,11 @@ public final class ThemeProvider extends ContentProvider {
             if (f == null) throw new java.io.FileNotFoundException(uri.toString());
             return android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY);
         }
+        if (c != null && seg.size() == 3 && "npart".equals(seg.get(0))) { // .../npart/<action>/<title>: the collected cover
+            java.io.File f = dev.ccnc.common.NowPlayingArt.serve(c, seg.get(1), seg.get(2));
+            if (f == null) throw new java.io.FileNotFoundException(uri.toString());
+            return android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY);
+        }
         if (c == null || !"r".equals(mode) || seg.size() < 3 || !"file".equals(seg.get(0))) throw new java.io.FileNotFoundException(uri.toString());
         try {
             java.io.File root = packsDir(c).getCanonicalFile();

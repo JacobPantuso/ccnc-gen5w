@@ -66,6 +66,44 @@ public final class Art {
         return load(c, "ccnc/wallpaper/" + name + ".jpg");
     }
 
+    /**
+     * Light themes: {@code b} with its white and light-grey pixels (the ccNC icon artwork is white line art for a
+     * dark background) redrawn in {@code ink}, keeping each pixel's alpha and its shade (a 60% grey stays lighter
+     * than a white). Coloured pixels (accent, red record, orange heat) are kept as they are. Dark themes, or null:
+     * {@code b} itself. Cached per bitmap and ink.
+     */
+    public static Bitmap ink(Bitmap b, int ink) {
+        if (b == null || !Palette.LIGHT) return b;
+        String key = System.identityHashCode(b) + "/" + Integer.toHexString(ink);
+        synchronized (inked) {
+            Bitmap done = inked.get(key);
+            if (done != null) return done;
+        }
+        int w = b.getWidth(), h = b.getHeight();
+        int[] px = new int[w * h];
+        b.getPixels(px, 0, w, 0, 0, w, h);
+        int ir = (ink >> 16) & 0xFF, ig = (ink >> 8) & 0xFF, ib = ink & 0xFF;
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i], a = p >>> 24;
+            if (a == 0) continue;
+            int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, bl = p & 0xFF;
+            int max = Math.max(r, Math.max(g, bl)), min = Math.min(r, Math.min(g, bl));
+            if (max - min > 40 || max < 110) continue;               // coloured or already dark: keep
+            float k = max / 255f;                                      // white -> full ink, light grey -> lighter ink
+            int na = Math.round(a * (0.35f + 0.65f * k));
+            px[i] = (na << 24) | (ir << 16) | (ig << 8) | ib;
+        }
+        Bitmap out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+        out.setDensity(b.getDensity());
+        synchronized (inked) { inked.put(key, out); }
+        return out;
+    }
+
+    /** {@link #ink(Bitmap, int)} in the theme's text colour. */
+    public static Bitmap ink(Bitmap b) { return ink(b, Palette.TEXT); }
+
+    private static final java.util.HashMap<String, Bitmap> inked = new java.util.HashMap<String, Bitmap>();
+
     private static synchronized Bitmap load(Context c, String path) {
         Bitmap b = cache.get(path);
         if (b != null) return b == MISSING ? null : b;
